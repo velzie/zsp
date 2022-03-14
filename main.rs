@@ -6,7 +6,8 @@ use std::env;
 use std::fs;
 use std::sync::Mutex;
 use substring::Substring;
-mod z_std;
+// mod z_std;
+// use z_std::Std;
 
 lazy_static! {
     static ref VARIABLES: Mutex<HashMap<String, Variable>> = {
@@ -16,6 +17,7 @@ lazy_static! {
 }
 fn main() {
     let args: Vec<String> = env::args().collect();
+
     if args.len() > 1 {
         let contents = fs::read_to_string(&args[1]).expect("could not read file");
         interpret(&contents);
@@ -38,12 +40,11 @@ fn consume(line: &str) -> String {
     // println!("{}", word);
     match word {
         _ => {
-            if z_std::std.get().contains_key(word) {
+            if true {
                 drop(vars);
                 return consume_std(line);
             } else if vars.contains_key(word) {
                 drop(vars);
-                return consume_variable(word, line);
             }
             println!("{} is a undefined keyword", word);
             return "".to_string();
@@ -52,55 +53,112 @@ fn consume(line: &str) -> String {
     }
 }
 fn consume_std(code: &str) -> String {
-    match code.find("\n") {
-        Some(index) => {
-            let line = code.substring(0, index);
-            let remainder = code.substring(index + 1, code.len());
+    let code: (String, String) = split_string(code, '\n');
 
-            let lineindex = code.find(" ").unwrap();
-            let keyword = line.substring(0, lineindex);
-            let argstring: &str = line.substring(lineindex + 1, line.len());
-            let args: Vec<&str> = argstring.split(",").collect();
+    let kargs = split_string(&code.0, ' ');
+    let args: Vec<&str> = kargs.1.split(",").collect();
 
-            match keyword {
-                "print" => println!("from code: {}", evaluate_expression(args[0])),
-                _ => println!("keyword {} is not defined", keyword),
-            }
-            return remainder.to_string();
-        }
-        None => "".to_string(),
+    match kargs.0.as_str() {
+        "print" => println!("from code: {}", evaluate_expression(args[0])),
+        _ => println!("keyword {} is not defined", kargs.0),
+    }
+    return code.1;
+}
+fn split_string(input: &str, character: char) -> (String, String) {
+    match input.find(character) {
+        Some(index) => (
+            input.substring(0, index).to_string(),
+            input.substring(index + 1, input.len()).to_string(),
+        ),
+        None => (input.to_string(), String::default()),
     }
 }
+
 fn evaluate_expression(expression: &str) -> Variable {
     println!("evaluating the expression {}", expression);
     let args: Vec<&str> = expression.split(" ").collect();
-    let mut evaluated: String = String::default();
-    let mut vars = VARIABLES.lock().unwrap();
+    let mut evaluated: Variable;
+    let vars = VARIABLES.lock().unwrap();
 
-    let mut varbuffer: Vec<Variable> = Vec::new();
+    let mut varbuffer: Vec<PreExpression> = Vec::new();
     for arg in args {
         if vars.contains_key(arg) {
-            varbuffer.push(vars.get(arg).unwrap().clone());
+            varbuffer.push(PreExpression::Variable(vars.get(arg).unwrap().clone()));
         } else if match arg.parse::<i32>() {
             Ok(n) => {
-                varbuffer.push(Variable::Int(n));
+                varbuffer.push(PreExpression::Variable(Variable::Int(n)));
                 true
             }
             Err(_) => false,
         } {
+        } else if match arg {
+            "+" => {
+                varbuffer.push(PreExpression::PLUS);
+                true
+            }
+            "-" => {
+                varbuffer.push(PreExpression::MINUS);
+                true
+            }
+            "*" => {
+                varbuffer.push(PreExpression::MULTIPLY);
+                true
+            }
+            "/" => {
+                varbuffer.push(PreExpression::DIVIDE);
+                true
+            }
+            _ => false,
+        } {
         } else {
             match arg.chars().nth(0).unwrap() {
-                '"' => varbuffer.push(Variable::Str(
+                '"' => varbuffer.push(PreExpression::Variable(Variable::Str(
                     arg.to_string().substring(1, arg.len() - 1).to_string(),
-                )),
+                ))),
                 _ => throw(&format!("couldn't find expression {}", arg)),
             }
         }
     }
-    return Variable::Str(evaluated);
+    evaluated = match varbuffer[0] {
+        PreExpression::Variable(ref v) => v.clone(),
+        _ => panic!(),
+    };
+    varbuffer.remove(0);
+    for exp in varbuffer {
+        // println!("{:?}", exp);
+        match exp {
+            PreExpression::Variable(ref var) => {
+                evaluated = match var {
+                    Variable::Str(ref string) => Variable::Str(format!("{}", evaluated) + string),
+                    Variable::Int(ref int) => match evaluated {
+                        Variable::Int(ref computed) => Variable::Int(computed + int),
+                        _ => Variable::Str(format!("{}", evaluated) + &int.to_string()),
+                    },
+                    Variable::Bool(ref bool) => {
+                        Variable::Str(format!("{}", evaluated) + &bool.to_string())
+                    }
+                    Variable::None => evaluated,
+                }
+            }
+            PreExpression::PLUS => {}
+            PreExpression::MINUS => {}
+            PreExpression::MULTIPLY => {}
+            PreExpression::DIVIDE => {}
+        }
+    }
+    // println!("{:?}", evaluated);
+    evaluated
 }
 fn throw(err: &str) {
     println!("error occured when parsing {}", err)
+}
+#[derive(Debug, Clone)]
+enum PreExpression {
+    Variable(Variable),
+    PLUS,
+    MINUS,
+    MULTIPLY,
+    DIVIDE,
 }
 #[derive(Debug, Clone)]
 enum Variable {
@@ -121,7 +179,20 @@ impl std::fmt::Display for Variable {
             Variable::Str(ref string) => write!(f, "{}", string),
             Variable::Int(ref int) => write!(f, "{}", int),
             Variable::Bool(ref bool) => write!(f, "{}", bool),
-            Variable::None => write!(f, "{}", "None"),
+            Variable::None => write!(f, "{}", ""),
+        }
+    }
+}
+impl std::fmt::Display for PreExpression {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
+        match *self {
+            PreExpression::Variable(ref var) => write!(f, "{}", var),
+            _ => write!(f, "{:?}", *self),
         }
     }
 }
