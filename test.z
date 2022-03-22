@@ -1,1 +1,14 @@
-print "hello world"
+print "testing an if statement"
+if true
+print "true statement 1 worked"
+if true
+print "should print"
+fi
+if false
+print "this should not print"
+else
+print "this should print"
+fi
+else
+print "outer else"
+fi

@@ -11,7 +11,9 @@ use substring::Substring;
 
 lazy_static! {
     static ref VARIABLES: Mutex<HashMap<String, Variable>> = {
-        let m = HashMap::new();
+        let mut m = HashMap::new();
+        m.insert(String::from("true"), Variable::Bool(true));
+        m.insert(String::from("false"), Variable::Bool(false));
         Mutex::new(m)
     };
 }
@@ -67,27 +69,99 @@ fn consume_std(code: &str) -> String {
     // print x
     // print "goodbye"
 
-    let code: (String, String) = split_string(code, '\n');
+    let code: (String, String) = split_string(code, "\n");
     // add 1,2
-    let kargs = split_string(&code.0, ' ');
+    let kargs = split_string(&code.0, " ");
     // (add|1,2)
     let args: Vec<String> = split_expression(kargs.1, ',');
-    println!();
-    // [1,2]
+    // println!();
+    // [1,2
     match kargs.0.as_str() {
         "print" => println!("from code: {}", evaluate_expression(&args[0])),
-        _ => println!("keyword {} is not defined", kargs.0),
+        "if" => {
+            let block = split_bool(&code.1);
+            match evaluate_expression(&args[0]) {
+                Variable::Bool(ref res) => {
+                    if *res {
+                        return consume_std(&block.0);
+                    } else {
+                        println!("\n{}\n", block.1);
+                        if block.1 != "" {
+                            return consume_std(&block.1);
+                        }
+                    }
+                }
+                _ => panic!("expected bool, got something else"),
+            }
+            return block.2;
+        }
+        _ => println!("keyword {} is not defined at line {}", kargs.0, code.0),
     }
     return code.1;
 }
-fn split_string(input: &str, character: char) -> (String, String) {
+fn split_string(input: &str, character: &str) -> (String, String) {
     match input.find(character) {
         Some(index) => (
             input.substring(0, index).to_string(),
-            input.substring(index + 1, input.len()).to_string(),
+            input
+                .substring(index + character.len(), input.len())
+                .to_string(),
         ),
         None => (input.to_string(), String::default()),
     }
+}
+
+fn split_bool(input: &str) -> (String, String, String) {
+    let ifs: Vec<(usize, &str)> = input.match_indices("if").collect();
+    let elses: Vec<(usize, &str)> = input.match_indices("else").collect();
+    let fis: Vec<(usize, &str)> = input.match_indices("fi").collect();
+
+    let mut ifc = String::default();
+    let mut elsec = String::default();
+    let mut remc = String::default();
+    let mut innerifindex = 0;
+    let mut inelse = false;
+    let mut elseindx = 0;
+    let mut instring = false;
+    for i in 0..input.len() {
+        if input.chars().nth(i).unwrap() == '"' {
+            instring = !instring;
+        }
+        if ifs.contains(&(i, "if")) && !instring {
+            innerifindex += 1;
+        }
+        if elses.contains(&(i, "else")) && !instring {
+            if innerifindex == 0 {
+                elseindx = i;
+                inelse = true;
+                ifc = input.substring(0, i).to_string();
+            }
+        }
+        if fis.contains(&(i, "fi")) && !instring {
+            if innerifindex == 0 {
+                if inelse {
+                    elsec = input.substring(elseindx + 4, i).to_string();
+                } else {
+                    ifc = input.substring(0, i).to_string();
+                }
+                remc = input.substring(i, input.len()).to_string();
+            } else {
+                innerifindex -= 1;
+            }
+        }
+    }
+    // println!("ifc [{}] elsec [{}]", ifc, elsec);
+    return (ifc, elsec, remc);
+
+    // match input.find(character) {
+    //     Some(index) => (
+    //         input.substring(0, index).to_string(),
+    //         input
+    //             .substring(index + character.len(), input.len())
+    //             .to_string(),
+    //     ),
+    //     None => (input.to_string(), String::default()),
+    // }
 }
 
 fn evaluate_expression(expression: &str) -> Variable {
@@ -212,7 +286,6 @@ fn split_expression(kargs: String, splitchar: char) -> Vec<String> {
 
     let mut instr = false;
     let mut buffer = String::default();
-    print!("{}", splitchar);
     for chr in kargs.chars() {
         if chr == '"' {
             instr = !instr;
