@@ -8,8 +8,9 @@ edition = "2021"
 [dependencies]
 lazy_static = "1.4.0"
 substring = "1.4.5"
+termion = "*"
 
 [[bin]]
 name = "zsp"
-path = "main.rs"
+path = "src/main.rs"
 
