@@ -1,6 +1,7 @@
-4print 4print 2
+4print(1 2 3)
+
 
 
 4print num{
-    4print num
+    4print (num)
 }

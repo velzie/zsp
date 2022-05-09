@@ -16,9 +16,9 @@ pub fn parse(tkns: Vec<Token>, input: String) {
     };
 
     let mut tokens = tkns.clone();
-    let mut funsyms = mkfunsyms(&mut tokens);
+    let mut funsyms = make_funsyms(&mut tokens);
 
-    dbg!(Token::InternalCall {});
+    // dbg!(Token::InternalCall {});
 
     funsyms.insert(
         String::from("print"),
@@ -30,15 +30,18 @@ pub fn parse(tkns: Vec<Token>, input: String) {
     );
 
     dbg!(&funsyms);
-    let functions = mkfunctions(&funsyms, &input, &root);
+    let functions = make_functions(&funsyms, &input, &root);
 
     dbg!(functions);
 
-    dbg!(blockparse(&tokens, &input, &funsyms, &root, &vec![])); // substitute vec![] for global constants later
+    dbg!("??");
+    dbg!(&tokens);
+
+    dbg!(parse_block(&tokens, &input, &funsyms, &root, &vec![])); // substitute vec![] for global constants later
 
     // (blockparse(tokens, input), functions)
 }
-pub fn mkfunctions(
+pub fn make_functions(
     funsyms: &HashMap<String, FunSym>,
     input: &String,
     parent: &Block,
@@ -50,13 +53,13 @@ pub fn mkfunctions(
             Fragment::Function {
                 name: sym.0.to_string(),
                 args: sym.1.args.clone(),
-                source: blockparse(&sym.1.source, input, funsyms, parent, &sym.1.args),
+                source: parse_block(&sym.1.source, input, funsyms, parent, &sym.1.args),
             },
         );
     }
     functions
 }
-pub fn mkfunsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
+pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
     let mut idx = 0;
     let mut funsyms: HashMap<String, FunSym> = HashMap::new();
     while idx < tokens.len() {
@@ -108,15 +111,135 @@ pub fn mkfunsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
     funsyms
 }
 
+pub fn parse_args(
+    tokens: &Vec<Token>,
+    input: &String,
+    funsyms: &HashMap<String, FunSym>,
+    parent: &Block,
+    exargs: &Vec<String>,
+    argslen: usize,
+    start: usize,
+    end: usize,
+) -> Vec<Vec<ExpressionFragment>> {
+    let mut args: Vec<Vec<ExpressionFragment>> = vec![];
+
+    let mut idx = start;
+    // keep running this code until every required argument has been captured
+    while args.len() != argslen {
+        let mut exp: Vec<ExpressionFragment> = vec![];
+
+        let mut token = &tokens[idx];
+
+        // the buffer for the current argument
+        loop {
+            idx += 1;
+            if idx >= end {
+                break;
+            }
+            // dbg!(&tokens[idx]);
+            // dbg!(&exp);
+            // dbg!(args.len(), fnsym.args.len());
+            // dbg!(idx);
+            token = &tokens[idx];
+            match token.symbol.clone() {
+                Symbol::String(_) | Symbol::Number(_) | Symbol::Name(_) => {
+                    if exp.len() == 0
+                        || matches!(
+                            exp.last()
+                                .unwrap_or(&ExpressionFragment::Logop(Logop::EqualTo)), //dumb hack please fix
+                            ExpressionFragment::Logop(_)
+                        )
+                        || matches!(exp.last().unwrap(), ExpressionFragment::Op(_))
+                    {
+                        // if it's the first element in the array or part of an expression
+                        match token.symbol.clone() {
+                            Symbol::String(s) => {
+                                exp.push(ExpressionFragment::Value(Value::String(s)))
+                            }
+                            Symbol::Number(n) => {
+                                exp.push(ExpressionFragment::Value(Value::Number(n)))
+                            }
+                            Symbol::Name(n) => {
+                                // make sure to check if the name is valid
+                                if parent.variables.contains(&n) {
+                                    exp.push(ExpressionFragment::Name(n));
+                                } else if funsyms.contains_key(&n) {
+                                    let fnsym = funsyms.get(&n).unwrap();
+                                    exp.push(parse_fncall(
+                                        &tokens, &input, &funsyms, &parent, &exargs, &mut idx,
+                                        &fnsym,
+                                    ));
+                                } else {
+                                    unexpected_name_exception(&input, token.index, Symbol::Name(n))
+                                }
+                            }
+                            _ => panic!(),
+                        }
+                    } else {
+                        // otherwise jump to the next argument
+                        if args.len() < argslen {
+                            dbg!("jumping to next arg");
+                            idx -= 1;
+                            break;
+                        } else {
+                            dbg!("unx in p args");
+                            unexpected_symbol_exception(
+                                &input,
+                                token.index,
+                                Fragment::Block(parent.clone()),
+                                token.symbol.clone(),
+                            );
+                        }
+                    }
+                }
+                Symbol::Logop(_) | Symbol::Op(_) => {}
+                _ => unexpected_symbol_exception(
+                    &input,
+                    token.index,
+                    Fragment::Block(parent.clone()),
+                    token.symbol.clone(),
+                ),
+            }
+        }
+        args.push(exp);
+        // why was this commented out
+    }
+    args
+}
+
 // panic!(split the arguments parser into a separate function);
 
-pub fn blockparse(
+// returns the index of the next symbol
+pub fn next_symbol(tokens: &Vec<Token>, input: &String, start: usize, end: Symbol) -> usize {
+    let mut idx = start;
+    loop {
+        let token = &tokens[idx];
+        if matches!(token, end) {
+            return idx;
+        }
+        idx += 1;
+        if idx == tokens.len() {
+            // exception(
+            //     &input,
+            //     idx,
+            //     "EOFexcpetion",
+            //     format!("Expected to find {:?}, got EOF instead", &end),
+            // );
+            panic!();
+        }
+    }
+}
+
+pub fn parse_block(
     tokens: &Vec<Token>,
     input: &String,
     funsyms: &HashMap<String, FunSym>,
     parent: &Block,
     args: &Vec<String>,
 ) -> Block {
+    dbg!("parsing");
+    dbg!(&tokens);
+
     let mut nvs = parent.variables.clone();
     nvs.extend(args.clone());
     let mut root: Block = Block {
@@ -138,93 +261,11 @@ pub fn blockparse(
             // Symbol::BlockEnd => {}
             Symbol::Name(name) => match funsyms.get(name) {
                 Some(fnsym) => {
-                    let mut args: Vec<Vec<ExpressionFragment>> = vec![];
-
-                    // keep running this code until every required argument has been captured
-                    while args.len() != fnsym.args.len() {
-                        let mut exp: Vec<ExpressionFragment> = vec![];
-                        // the buffer for the current argument
-                        loop {
-                            idx += 1;
-                            if idx == tokens.len() {
-                                break;
-                            }
-                            // dbg!(&tokens[idx]);
-                            // dbg!(&exp);
-                            // dbg!(args.len(), fnsym.args.len());
-                            // dbg!(idx);
-                            token = &tokens[idx];
-                            match token.symbol.clone() {
-                                Symbol::String(_) | Symbol::Number(_) | Symbol::Name(_) => {
-                                    if exp.len() == 0
-                                        || matches!(
-                                            exp.last().unwrap_or(&ExpressionFragment::Logop(
-                                                Logop::EqualTo
-                                            )), //dumb hack please fix
-                                            ExpressionFragment::Logop(_)
-                                        )
-                                        || matches!(exp.last().unwrap(), ExpressionFragment::Op(_))
-                                    {
-                                        // if it's the first element in the array or part of an expression
-                                        match token.symbol.clone() {
-                                            Symbol::String(s) => exp
-                                                .push(ExpressionFragment::Value(Value::String(s))),
-                                            Symbol::Number(n) => exp
-                                                .push(ExpressionFragment::Value(Value::Number(n))),
-                                            Symbol::Name(n) => {
-                                                // make sure to check if the name is valid
-                                                if root.variables.contains(&n) {
-                                                    exp.push(ExpressionFragment::Name(n));
-                                                } else if funsyms.contains_key(&n) {
-                                                    exception(
-                                                        &input,
-                                                        idx,
-                                                        "UnsupportedFeatureException",
-                                                        "Cannot call a function from within an argument due to ambiguous parse order / laziness. could be fixed",
-                                                    )
-                                                } else {
-                                                    unexpected_name_exception(
-                                                        &input,
-                                                        idx,
-                                                        Symbol::Name(n),
-                                                    )
-                                                }
-                                            }
-                                            _ => panic!(),
-                                        }
-                                    } else {
-                                        // otherwise jump to the next argument
-                                        if args.len() < fnsym.args.len() {
-                                            dbg!("jumping to next arg");
-                                            idx -= 1;
-                                            break;
-                                        } else {
-                                            unexpected_symbol_exception(
-                                                &input,
-                                                token.index,
-                                                Fragment::Block(root.clone()),
-                                                token.symbol.clone(),
-                                            );
-                                        }
-                                    }
-                                }
-                                Symbol::Logop(_) | Symbol::Op(_) => {}
-                                _ => unexpected_symbol_exception(
-                                    &input,
-                                    token.index,
-                                    Fragment::Block(root.clone()),
-                                    token.symbol.clone(),
-                                ),
-                            }
-                        }
-                        args.push(exp);
-                        // why was this commented out
-                    }
-                    root.children.push(Fragment::Call {
-                        name: name.to_string(),
-                        args: args,
-                    })
-                    // idx -= 1;
+                    dbg!(&tokens);
+                    dbg!("uhaiudhasui");
+                    root.children.push(Fragment::InvokeExpression(parse_fncall(
+                        &tokens, &input, &funsyms, &parent, &args, &mut idx, &fnsym,
+                    )));
                 }
                 None => unexpected_name_exception(&input, token.index, token.symbol.clone()),
             },
@@ -239,6 +280,55 @@ pub fn blockparse(
         idx += 1;
     }
     root
+}
+pub fn parse_fncall(
+    tokens: &Vec<Token>,
+    input: &String,
+    funsyms: &HashMap<String, FunSym>,
+    parent: &Block,
+    args: &Vec<String>,
+    idx: &mut usize,
+    fnsym: &FunSym,
+) -> ExpressionFragment {
+    *idx += 1;
+    dbg!(*idx);
+    let mut token = &tokens[*idx];
+    dbg!(token);
+    match &token.symbol {
+        Symbol::ParenStart => {
+            // look for end of paren, parse on that
+            *idx += 1;
+            let endidx = next_symbol(&tokens, &input, *idx, Symbol::ParenEnd);
+
+            dbg!(endidx);
+            dbg!();
+            let fnargs = parse_args(
+                &tokens,
+                &input,
+                &funsyms,
+                &parent,
+                &args,
+                fnsym.args.len(),
+                *idx,
+                endidx - 1,
+            );
+            *idx += 1;
+            return ExpressionFragment::Call {
+                name: fnsym.name.clone(),
+                args: fnargs,
+            };
+        }
+        _ => {
+            exception(
+                &input,
+                token.index,
+                "SyntaxException",
+                "Incorrect syntax for a function call. Please use parenthesis",
+            );
+            panic!("cannot continue execution");
+        }
+    }
+    // idx -= 1;
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +359,14 @@ pub enum Fragment {
         name: String,
         value: Value,
     },
+    InvokeExpression(ExpressionFragment),
+}
+#[derive(Debug, Clone)]
+pub enum ExpressionFragment {
+    Name(String), //remember that this could also be a function call :/
+    Op(Op),
+    Logop(Logop),
+    Value(Value),
     Call {
         name: String,
         args: Vec<Vec<ExpressionFragment>>,
@@ -277,13 +375,6 @@ pub enum Fragment {
         name: String,
         args: Vec<Vec<ExpressionFragment>>,
     },
-}
-#[derive(Debug, Clone)]
-pub enum ExpressionFragment {
-    Name(String), //remember that this could also be a function call :/
-    Op(Op),
-    Logop(Logop),
-    Value(Value),
 }
 #[derive(Debug, Clone)]
 pub enum Value {
