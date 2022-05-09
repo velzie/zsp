@@ -6,8 +6,8 @@ use std::env;
 use std::fs;
 use std::sync::Mutex;
 use substring::Substring;
-// mod zstd;
-// use zstd::Zstd;
+// mod z_std;
+// use z_std::Std;
 
 lazy_static! {
     static ref VARIABLES: Mutex<HashMap<String, Variable>> = {
@@ -21,15 +21,6 @@ fn main() {
     if args.len() > 1 {
         let contents = fs::read_to_string(&args[1]).expect("could not read file");
         interpret(&contents);
-        // Zstd.std
-        // let mut fnmap: HashMap<&str, Box<dyn Fn(_)>> = HashMap::new();
-        // fnmap.insert(
-        //     "func",
-        //     Box::new(|x: &str| println!("{}", x)) as Box<dyn Fn(_)>,
-        // );
-        // fnmap.get("func").unwrap()("e");
-        // let fnc: closure = |e: &str| print!("{}", e);
-        // print!("{}", std::any::type_name(fnc));
     } else {
         panic!("no file provided");
     }
@@ -43,39 +34,32 @@ fn interpret(file: &str) {
 }
 fn consume(line: &str) -> String {
     //when consume is called, we are expected to be at an empty block
-    // let top: Vec<&str> = line.split(" ").collect();
-    // let word: &str = top[0];
-    // let vars = VARIABLES.lock().unwrap();
+    let top: Vec<&str> = line.split(" ").collect();
+    let word: &str = top[0];
+    let vars = VARIABLES.lock().unwrap();
     // println!("{}", word);
-    // match word {
-    // _ => {
-    // if true {
-    // drop(vars);
-    return consume_std(line);
-    // } else if vars.contains_key(word) {
-    // drop(vars);
-    // }
-    // println!("{} is a undefined keyword", word);
-    // return "".to_string();
-    // panic!("{} is a undefined keyword", word);
-    // }
-    // }
+    match word {
+        _ => {
+            if true {
+                drop(vars);
+                return consume_std(line);
+            } else if vars.contains_key(word) {
+                drop(vars);
+            }
+            println!("{} is a undefined keyword", word);
+            return "".to_string();
+            // panic!("{} is a undefined keyword", word);
+        }
+    }
 }
 fn consume_std(code: &str) -> String {
-    //example input
-    // add 1,2
-    // print x
-    // print "goodbye"
-
     let code: (String, String) = split_string(code, '\n');
-    // add 1,2
+
     let kargs = split_string(&code.0, ' ');
-    // (add|1,2)
-    let args: Vec<String> = split_expression(kargs.1, ',');
-    println!();
-    // [1,2]
+    let args: Vec<&str> = kargs.1.split(",").collect();
+
     match kargs.0.as_str() {
-        "print" => println!("from code: {}", evaluate_expression(&args[0])),
+        "print" => println!("from code: {}", evaluate_expression(args[0])),
         _ => println!("keyword {} is not defined", kargs.0),
     }
     return code.1;
@@ -92,13 +76,14 @@ fn split_string(input: &str, character: char) -> (String, String) {
 
 fn evaluate_expression(expression: &str) -> Variable {
     println!("evaluating the expression {}", expression);
-    let args: Vec<String> = split_expression(expression.to_string(), ' ');
+    let args: Vec<&str> = expression.split(" ").collect();
+    let mut evaluated: Variable;
     let vars = VARIABLES.lock().unwrap();
 
     let mut varbuffer: Vec<PreExpression> = Vec::new();
     for arg in args {
-        if vars.contains_key(&arg) {
-            varbuffer.push(PreExpression::Variable(vars.get(&arg).unwrap().clone()));
+        if vars.contains_key(arg) {
+            varbuffer.push(PreExpression::Variable(vars.get(arg).unwrap().clone()));
         } else if match arg.parse::<i32>() {
             Ok(n) => {
                 varbuffer.push(PreExpression::Variable(Variable::Int(n)));
@@ -106,7 +91,7 @@ fn evaluate_expression(expression: &str) -> Variable {
             }
             Err(_) => false,
         } {
-        } else if match &*arg {
+        } else if match arg {
             "+" => {
                 varbuffer.push(PreExpression::PLUS);
                 true
@@ -123,10 +108,6 @@ fn evaluate_expression(expression: &str) -> Variable {
                 varbuffer.push(PreExpression::DIVIDE);
                 true
             }
-            "==" => {
-                varbuffer.push(PreExpression::EQUALS);
-                true
-            }
             _ => false,
         } {
         } else {
@@ -138,103 +119,35 @@ fn evaluate_expression(expression: &str) -> Variable {
             }
         }
     }
-    let mut held: Option<Variable> = None;
-    let mut operation: Option<PreExpression> = None;
+    evaluated = match varbuffer[0] {
+        PreExpression::Variable(ref v) => v.clone(),
+        _ => panic!(),
+    };
+    varbuffer.remove(0);
     for exp in varbuffer {
+        // println!("{:?}", exp);
         match exp {
-            PreExpression::Variable(ref var) => match held.clone() {
-                Some(heldvar) => match operation.clone() {
-                    Some(op) => {
-                        held = Some(match op {
-                            PreExpression::PLUS => match var {
-                                Variable::Str(ref string) => {
-                                    Variable::Str(format!("{}", heldvar) + string)
-                                }
-                                Variable::Int(ref int) => match heldvar {
-                                    Variable::Int(ref computed) => Variable::Int(computed + int),
-                                    _ => Variable::Str(format!("{}", heldvar) + &int.to_string()),
-                                },
-                                Variable::Bool(ref bool) => {
-                                    Variable::Str(format!("{}", heldvar) + &bool.to_string())
-                                }
-                                Variable::None => heldvar,
-                            },
-                            PreExpression::MINUS => match var {
-                                Variable::Int(ref int) => match heldvar {
-                                    Variable::Int(ref computed) => Variable::Int(computed - int),
-                                    _ => panic!("cant subtract that"),
-                                },
-                                _ => panic!("cant subtract that"),
-                            },
-                            PreExpression::MULTIPLY => match var {
-                                Variable::Int(ref int) => match heldvar {
-                                    Variable::Int(ref computed) => Variable::Int(computed * int),
-                                    _ => panic!("cant multiply that"),
-                                },
-                                _ => panic!("cant multiply that"),
-                            },
-                            PreExpression::DIVIDE => match var {
-                                Variable::Int(ref int) => match heldvar {
-                                    Variable::Int(ref computed) => Variable::Int(computed / int),
-                                    _ => panic!("cant divide that"),
-                                },
-                                _ => panic!("cant divide that"),
-                            },
-                            PreExpression::EQUALS => match var {
-                                Variable::Bool(ref bool) => match heldvar {
-                                    Variable::Bool(ref computed) => {
-                                        Variable::Bool(computed == bool)
-                                    }
-                                    _ => panic!("thats not a bool"),
-                                },
-                                _ => panic!("thats not a bool"),
-                            },
-                            _ => panic!("you need an operator. that doesn't make any sense"),
-                        });
-                        operation = None;
+            PreExpression::Variable(ref var) => {
+                evaluated = match var {
+                    Variable::Str(ref string) => Variable::Str(format!("{}", evaluated) + string),
+                    Variable::Int(ref int) => match evaluated {
+                        Variable::Int(ref computed) => Variable::Int(computed + int),
+                        _ => Variable::Str(format!("{}", evaluated) + &int.to_string()),
+                    },
+                    Variable::Bool(ref bool) => {
+                        Variable::Str(format!("{}", evaluated) + &bool.to_string())
                     }
-                    None => panic!("specify an operator in expression"),
-                },
-                None => {
-                    held = Some(match exp.clone() {
-                        PreExpression::Variable(ref var) => var.clone(),
-                        _ => panic!(),
-                    })
+                    Variable::None => evaluated,
                 }
-            },
-            _ => operation = Some(exp),
-        }
-    }
-    held.unwrap()
-}
-fn split_expression(kargs: String, splitchar: char) -> Vec<String> {
-    let mut args: Vec<String> = Vec::new();
-
-    let mut instr = false;
-    let mut buffer = String::default();
-    print!("{}", splitchar);
-    for chr in kargs.chars() {
-        if chr == '"' {
-            instr = !instr;
-            buffer += &chr.to_string();
-        } else if chr == splitchar {
-            if !instr {
-                args.push(buffer);
-                buffer = String::default();
-            } else {
-                buffer += &chr.to_string();
             }
-        } else {
-            buffer += &chr.to_string();
+            PreExpression::PLUS => {}
+            PreExpression::MINUS => {}
+            PreExpression::MULTIPLY => {}
+            PreExpression::DIVIDE => {}
         }
     }
-    // println!("buffe is {}", buffer);
-    args.push(buffer);
-    args
-}
-fn _panic(err: &str) {
-    throw(err);
-    panic!();
+    // println!("{:?}", evaluated);
+    evaluated
 }
 fn throw(err: &str) {
     println!("error occured when parsing {}", err)
@@ -246,7 +159,6 @@ enum PreExpression {
     MINUS,
     MULTIPLY,
     DIVIDE,
-    EQUALS,
 }
 #[derive(Debug, Clone)]
 enum Variable {
@@ -272,7 +184,12 @@ impl std::fmt::Display for Variable {
     }
 }
 impl std::fmt::Display for PreExpression {
+    // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
         match *self {
             PreExpression::Variable(ref var) => write!(f, "{}", var),
             _ => write!(f, "{:?}", *self),
