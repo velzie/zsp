@@ -3,7 +3,7 @@ use crate::parser::Fragment;
 use std::io;
 use termion::{clear, color, style};
 
-pub fn unexpected_symbol_exception(input: String, idx: usize, context: Fragment, symbol: Symbol) {
+pub fn unexpected_symbol_exception(input: &String, idx: usize, context: Fragment, symbol: Symbol) {
     exception(
         input,
         idx,
@@ -11,7 +11,15 @@ pub fn unexpected_symbol_exception(input: String, idx: usize, context: Fragment,
         &format!("Symbol {:?} cannot appear in context {:?}", symbol, context),
     )
 }
-pub fn exception(input: String, idx: usize, errtype: &str, message: &str) {
+pub fn unexpected_name_exception(input: &String, idx: usize, symbol: Symbol) {
+    exception(
+        input,
+        idx,
+        "UnexpectedNameException",
+        &format!("Name {:?} is undefined ", symbol),
+    )
+}
+pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
     let mut i = 0;
     let mut lines = 0;
     let mut offset = 0;

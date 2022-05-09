@@ -5,6 +5,7 @@ extern crate lazy_static;
 
 // #![feature(once_cell)]
 mod exceptions;
+mod interpreter;
 mod lexer;
 mod parser;
 

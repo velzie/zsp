@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 // #[feature(once_cell)]
 // use std::lazy;
+use crate::parser::ExpressionFragment;
 use std::collections::HashMap;
 
 lazy_static! {
@@ -33,6 +34,7 @@ lazy_static! {
         mksym("^", Symbol::Op(Op::Power)),
     ]);
 }
+// honestly if you asked me to explain what was going on here i couldn't really tell you. at least it works.
 pub fn lex(inp: String) -> Vec<Token> {
     let mut chars: Vec<char> = inp.chars().collect::<Vec<char>>();
     chars.push('\u{0017}');
@@ -75,13 +77,6 @@ pub fn lex(inp: String) -> Vec<Token> {
             }
             _ => match INTERRUPTS.get(&ch) {
                 Some(opt) => {
-                    match opt {
-                        Some(sym) => tokens.push(Token {
-                            symbol: sym.clone(),
-                            index: idx,
-                        }),
-                        None => {}
-                    }
                     if buf.len() > 0 {
                         tokens.push(Token {
                             symbol: match KEYWORDS.get(&*buf) {
@@ -93,6 +88,13 @@ pub fn lex(inp: String) -> Vec<Token> {
                             },
                             index: idx,
                         });
+                    }
+                    match opt {
+                        Some(sym) => tokens.push(Token {
+                            symbol: sym.clone(),
+                            index: idx,
+                        }),
+                        None => {}
                     }
                     buf = String::default();
                 }
@@ -124,6 +126,10 @@ pub enum Symbol {
     Number(f64),
     Logop(Logop),
     Op(Op),
+    InternalCall {
+        name: String,
+        args: Vec<Vec<ExpressionFragment>>,
+    },
 }
 #[derive(Debug, Clone)]
 pub enum Op {

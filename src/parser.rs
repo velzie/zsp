@@ -1,3 +1,6 @@
+//TODO : replace the clones with borrows and replace the strings with &strs
+// Split the argparser into a function since it's called several times
+
 use crate::lexer::Logop;
 use crate::lexer::Op;
 use crate::lexer::Symbol;
@@ -13,14 +16,25 @@ pub fn parse(tkns: Vec<Token>, input: String) {
     };
 
     let mut tokens = tkns.clone();
-    let funsyms = mkfunsyms(&mut tokens);
+    let mut funsyms = mkfunsyms(&mut tokens);
+
+    dbg!(Token::InternalCall {});
+
+    funsyms.insert(
+        String::from("print"),
+        FunSym {
+            name: String::from("print"),
+            args: vec![String::from("text")],
+            source: vec![],
+        },
+    );
 
     dbg!(&funsyms);
     let functions = mkfunctions(&funsyms, &input, &root);
 
     dbg!(functions);
 
-    // dbg!(blockparse(tokens, input, funsyms));
+    dbg!(blockparse(&tokens, &input, &funsyms, &root, &vec![])); // substitute vec![] for global constants later
 
     // (blockparse(tokens, input), functions)
 }
@@ -94,6 +108,8 @@ pub fn mkfunsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
     funsyms
 }
 
+// panic!(split the arguments parser into a separate function);
+
 pub fn blockparse(
     tokens: &Vec<Token>,
     input: &String,
@@ -156,7 +172,23 @@ pub fn blockparse(
                                             Symbol::Number(n) => exp
                                                 .push(ExpressionFragment::Value(Value::Number(n))),
                                             Symbol::Name(n) => {
-                                                exp.push(ExpressionFragment::Name(n))
+                                                // make sure to check if the name is valid
+                                                if root.variables.contains(&n) {
+                                                    exp.push(ExpressionFragment::Name(n));
+                                                } else if funsyms.contains_key(&n) {
+                                                    exception(
+                                                        &input,
+                                                        idx,
+                                                        "UnsupportedFeatureException",
+                                                        "Cannot call a function from within an argument due to ambiguous parse order / laziness. could be fixed",
+                                                    )
+                                                } else {
+                                                    unexpected_name_exception(
+                                                        &input,
+                                                        idx,
+                                                        Symbol::Name(n),
+                                                    )
+                                                }
                                             }
                                             _ => panic!(),
                                         }
@@ -168,7 +200,7 @@ pub fn blockparse(
                                             break;
                                         } else {
                                             unexpected_symbol_exception(
-                                                input.clone(),
+                                                &input,
                                                 token.index,
                                                 Fragment::Block(root.clone()),
                                                 token.symbol.clone(),
@@ -178,7 +210,7 @@ pub fn blockparse(
                                 }
                                 Symbol::Logop(_) | Symbol::Op(_) => {}
                                 _ => unexpected_symbol_exception(
-                                    input.clone(),
+                                    &input,
                                     token.index,
                                     Fragment::Block(root.clone()),
                                     token.symbol.clone(),
@@ -194,10 +226,10 @@ pub fn blockparse(
                     })
                     // idx -= 1;
                 }
-                None => unexpected_name_exception(input.clone(), token.index, token.symbol.clone()),
+                None => unexpected_name_exception(&input, token.index, token.symbol.clone()),
             },
             _ => unexpected_symbol_exception(
-                input.clone(),
+                &input,
                 token.index,
                 Fragment::Block(root.clone()),
                 token.symbol.clone(),
