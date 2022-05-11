@@ -35,7 +35,7 @@ pub fn parse(tkns: Vec<Token>, input: String) {
     //dbg!(functions);
 
     //dbg!("??");
-    //dbg!(&tokens);
+    dbg!(&tokens);
 
     dbg!(parse_block(
         &tokens,
@@ -77,6 +77,7 @@ pub fn make_functions(
     functions
 }
 pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
+    panic!("the issue is here. it interprets the if as a functyion");
     let mut idx = 0;
     let mut funsyms: HashMap<String, FunSym> = HashMap::new();
     while idx < tokens.len() {
@@ -121,6 +122,7 @@ pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
                     }
                 }
             }
+            Symbol::If => {}
             _ => {}
         }
         idx += 1;
@@ -207,7 +209,8 @@ pub fn parse_args(
                         }
                     }
                 }
-                Symbol::Logop(_) | Symbol::Op(_) => {}
+                Symbol::Logop(l) => exp.push(ExpressionFragment::Logop(l.clone())),
+                Symbol::Op(o) => exp.push(ExpressionFragment::Op(o.clone())),
                 _ => unexpected_symbol_exception(
                     &input,
                     token.index,
@@ -248,12 +251,37 @@ pub fn next_symbol(tokens: &Vec<Token>, input: &String, start: usize, end: Symbo
         }
         idx += 1;
         if idx == tokens.len() {
-            // exception(
-            //     &input,
-            //     idx,
-            //     "EOFexcpetion",
-            //     format!("Expected to find {:?}, got EOF instead", &end),
-            // );
+            exception(
+                &input,
+                idx,
+                "EOFexcpetion",
+                format!("Expected to find {:?}, got EOF instead", &end),
+            );
+            panic!();
+        }
+    }
+}
+pub fn next_symbol_block(
+    tokens: &Vec<Token>,
+    input: &String,
+    start: usize,
+    addepth: Symbol,
+    backdepth: Symbol,
+) -> usize {
+    let mut idx = start;
+    loop {
+        let token = &tokens[idx];
+        if std::mem::discriminant(&token.symbol) == std::mem::discriminant(&addepth) {
+            return idx;
+        }
+        idx += 1;
+        if idx == tokens.len() {
+            exception(
+                &input,
+                idx,
+                "EOFexcpetion",
+                format!("Expected to find {:?}, got EOF instead", &backdepth),
+            );
             panic!();
         }
     }
@@ -288,6 +316,7 @@ pub fn parse_block(
                 dbg!(&tokens);
                 dbg!(&root);
                 idx += 1;
+                panic!("replace this with a next_symbol_block");
                 let endidx = next_symbol(&tokens, &input, idx, Symbol::BlockStart);
 
                 let ifargs = parse_args(&tokens, &input, &funsyms, &parent, &args, 1, idx);
