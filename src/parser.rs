@@ -136,7 +136,6 @@ pub fn parse_args(
     exargs: &Vec<String>,
     argslen: usize,
     start: usize,
-    end: usize,
 ) -> Vec<Vec<ExpressionFragment>> {
     let mut args: Vec<Vec<ExpressionFragment>> = vec![];
 
@@ -149,10 +148,9 @@ pub fn parse_args(
 
         // the buffer for the current argument
         loop {
-            idx += 1;
             dbg!(idx);
-            dbg!(end);
-            if idx > end {
+            // dbg!(end);
+            if idx >= tokens.len() {
                 break;
             }
             let token = &tokens[idx];
@@ -186,7 +184,8 @@ pub fn parse_args(
                                         &fnsym,
                                     ));
                                 } else {
-                                    unexpected_name_exception(&input, token.index, Symbol::Name(n))
+                                    unexpected_name_exception(&input, token.index, Symbol::Name(n));
+                                    panic!();
                                 }
                             }
                             _ => panic!(),
@@ -222,6 +221,8 @@ pub fn parse_args(
         } else {
             break;
         }
+        idx += 1;
+
         // why was this commented out
     }
     if args.len() < argslen {
@@ -230,13 +231,6 @@ pub fn parse_args(
             tokens[start].index,
             "ArgumentException",
             "Not enough arguments!",
-        );
-    } else if idx - 1 != end {
-        exception(
-            &input,
-            tokens[start].index,
-            "ArgumentException",
-            "Too many arguments!",
         );
     }
     args
@@ -290,17 +284,13 @@ pub fn parse_block(
         let mut token = &tokens[idx];
         match &token.symbol {
             Symbol::If => {
+                dbg!("asdjasl");
+                dbg!(&tokens);
+                dbg!(&root);
+                idx += 1;
                 let endidx = next_symbol(&tokens, &input, idx, Symbol::BlockStart);
-                let ifargs = parse_args(
-                    &tokens,
-                    &input,
-                    &funsyms,
-                    &parent,
-                    &args,
-                    1,
-                    idx,
-                    endidx - 1,
-                );
+
+                let ifargs = parse_args(&tokens, &input, &funsyms, &parent, &args, 1, idx);
                 dbg!(&ifargs);
                 idx = endidx + 1;
 
@@ -311,15 +301,17 @@ pub fn parse_block(
 
                 let mut falseblock: Option<Block> = None;
 
-                match &tokens[idx].symbol {
-                    Symbol::BlockStart => {
-                        let elseidx = next_symbol(&tokens, &input, idx, Symbol::BlockEnd);
+                if idx < tokens.len() {
+                    match &tokens[idx].symbol {
+                        Symbol::BlockStart => {
+                            let elseidx = next_symbol(&tokens, &input, idx, Symbol::BlockEnd);
 
-                        falseblock = Some(parse_block(
-                            &tokens, &input, &funsyms, &root, &args, idx, elseidx,
-                        ));
+                            falseblock = Some(parse_block(
+                                &tokens, &input, &funsyms, &root, &args, idx, elseidx,
+                            ));
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
                 root.children.push(Fragment::If {
                     condition: ifargs[0].clone(),
@@ -327,19 +319,23 @@ pub fn parse_block(
                     falseblock: falseblock,
                 })
             }
-            Symbol::Assign => {}
             // Symbol::BlockStart => {}
             // Symbol::BlockEnd => {}
             Symbol::Name(name) => match funsyms.get(name) {
                 Some(fnsym) => {
-                    //dbg!(&tokens);
-                    //dbg!("uhaiudhasui");
-
                     root.children.push(Fragment::InvokeExpression(parse_fncall(
                         &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
                     )));
                 }
-                None => unexpected_name_exception(&input, token.index, token.symbol.clone()),
+                None => {
+                    idx += 1;
+                    token = &tokens[idx];
+
+                    match &token.symbol {
+                        Symbol::Assign => {}
+                        _ => unexpected_name_exception(&input, token.index, token.symbol.clone()),
+                    }
+                }
             },
             _ => unexpected_symbol_exception(
                 &input,
@@ -366,41 +362,39 @@ pub fn parse_fncall(
     //dbg!(*idx);
     let mut token = &tokens[*idx];
     //dbg!(token);
-    match &token.symbol {
-        Symbol::ParenStart => {
-            // look for end of paren, parse on that
-            let endidx = next_symbol(&tokens, &input, *idx, Symbol::ParenEnd);
+    // match &token.symbol {
+    //     Symbol::ParenStart => {
+    // look for end of paren, parse on that
+    // let endidx = next_symbol(&tokens, &input, *idx, Symbol::ParenEnd);
 
-            dbg!(&idx);
-            dbg!(endidx);
-            //dbg!();
-            let fnargs = parse_args(
-                &tokens,
-                &input,
-                &funsyms,
-                &parent,
-                &args,
-                fnsym.args.len(),
-                *idx,
-                endidx - 1,
-            );
-            dbg!(&fnargs);
-            *idx = endidx;
-            return ExpressionFragment::Call {
-                name: fnsym.name.clone(),
-                args: fnargs,
-            };
-        }
-        _ => {
-            exception(
-                &input,
-                token.index,
-                "SyntaxException",
-                "Incorrect syntax for a function call. Please use parenthesis",
-            );
-            panic!("cannot continue execution");
-        }
-    }
+    // dbg!(endidx);
+    dbg!(&idx);
+    //dbg!();
+    let fnargs = parse_args(
+        &tokens,
+        &input,
+        &funsyms,
+        &parent,
+        &args,
+        fnsym.args.len(),
+        *idx,
+    );
+    dbg!(&fnargs);
+    // *idx = endidx;
+    return ExpressionFragment::Call {
+        name: fnsym.name.clone(),
+        args: fnargs,
+    };
+    //     _ => {
+    //         exception(
+    //             &input,
+    //             token.index,
+    //             "SyntaxException",
+    //             "Incorrect syntax for a function call. Please use parenthesis",
+    //         );
+    //         panic!("cannot continue execution");
+    //     }
+    // }
     // idx -= 1;
 }
 
