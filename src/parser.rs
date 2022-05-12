@@ -6,6 +6,7 @@ use crate::lexer::Op;
 use crate::lexer::Symbol;
 use crate::lexer::Token;
 use std::collections::HashMap;
+use std::process::id;
 
 use crate::exceptions::*;
 // -> (Block, Vec<Fragment>)
@@ -16,7 +17,7 @@ pub fn parse(tkns: Vec<Token>, input: String) {
     };
 
     let mut tokens = tkns.clone();
-    let mut funsyms = make_funsyms(&mut tokens);
+    let mut funsyms = make_funsyms(&mut tokens, &input);
 
     // //dbg!(Token::InternalCall {});
 
@@ -76,8 +77,7 @@ pub fn make_functions(
     }
     functions
 }
-pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
-    panic!("the issue is here. it interprets the if as a functyion");
+pub fn make_funsyms(tokens: &mut Vec<Token>, input: &String) -> HashMap<String, FunSym> {
     let mut idx = 0;
     let mut funsyms: HashMap<String, FunSym> = HashMap::new();
     while idx < tokens.len() {
@@ -94,6 +94,7 @@ pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
                             let mut depth = 1;
                             while depth > 0 {
                                 idx += 1;
+
                                 match &tokens[idx].symbol.clone() {
                                     Symbol::BlockStart => depth += 1,
                                     Symbol::BlockEnd => depth -= 1,
@@ -122,7 +123,12 @@ pub fn make_funsyms(tokens: &mut Vec<Token>) -> HashMap<String, FunSym> {
                     }
                 }
             }
-            Symbol::If => {}
+            Symbol::If => {
+                idx += 1;
+                let endx =
+                    next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
+                idx = endx;
+            }
             _ => {}
         }
         idx += 1;
@@ -255,7 +261,7 @@ pub fn next_symbol(tokens: &Vec<Token>, input: &String, start: usize, end: Symbo
                 &input,
                 idx,
                 "EOFexcpetion",
-                format!("Expected to find {:?}, got EOF instead", &end),
+                &format!("Expected to find {:?}, got EOF instead", &end),
             );
             panic!();
         }
@@ -280,7 +286,7 @@ pub fn next_symbol_block(
                 &input,
                 idx,
                 "EOFexcpetion",
-                format!("Expected to find {:?}, got EOF instead", &backdepth),
+                &format!("Expected to find {:?}, got EOF instead", &backdepth),
             );
             panic!();
         }
@@ -316,14 +322,16 @@ pub fn parse_block(
                 dbg!(&tokens);
                 dbg!(&root);
                 idx += 1;
-                panic!("replace this with a next_symbol_block");
-                let endidx = next_symbol(&tokens, &input, idx, Symbol::BlockStart);
+                // panic!("replace this with a next_symbol_block");
+                let endidx =
+                    next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
 
                 let ifargs = parse_args(&tokens, &input, &funsyms, &parent, &args, 1, idx);
                 dbg!(&ifargs);
                 idx = endidx + 1;
 
-                let ifendidx = next_symbol(&tokens, &input, idx, Symbol::BlockEnd);
+                let ifendidx =
+                    next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
 
                 let trueblock = parse_block(&tokens, &input, &funsyms, &root, &args, idx, ifendidx);
                 idx = ifendidx + 1;
@@ -333,7 +341,13 @@ pub fn parse_block(
                 if idx < tokens.len() {
                     match &tokens[idx].symbol {
                         Symbol::BlockStart => {
-                            let elseidx = next_symbol(&tokens, &input, idx, Symbol::BlockEnd);
+                            let elseidx = next_symbol_block(
+                                &tokens,
+                                &input,
+                                idx,
+                                Symbol::BlockStart,
+                                Symbol::BlockEnd,
+                            );
 
                             falseblock = Some(parse_block(
                                 &tokens, &input, &funsyms, &root, &args, idx, elseidx,

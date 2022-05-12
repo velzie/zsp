@@ -1,3 +1,9 @@
-if treu {
+
+if treu 2 {
     print 1
 } 
+
+
+treu num {
+
+}
