@@ -130,6 +130,8 @@ pub enum Symbol {
     Number(f64),
     Logop(Logop),
     Op(Op),
+    Return,
+    Include,
     InternalCall {
         name: String,
         args: Vec<Vec<ExpressionFragment>>,

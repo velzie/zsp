@@ -57,4 +57,5 @@ pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
         style::Bold,
         message
     );
+    panic!();
 }
