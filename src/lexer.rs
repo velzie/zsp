@@ -19,15 +19,21 @@ lazy_static! {
     ]);
     static ref KEYWORDS: HashMap<String, Symbol> = HashMap::from([
         mksym("if", Symbol::If),
+        mksym("loop",Symbol::Loop),
+        mksym("break",Symbol::Break),
+        mksym("return",Symbol::Return),
+        mksym("load",Symbol::Load),
+        mksym("true",Symbol::Bool(true)),
+        mksym("false",Symbol::Bool(false)),
         mksym("=", Symbol::Assign),
 
-        mksym("<", Symbol::Logop(Logop::LessThan)),
-        mksym("<=", Symbol::Logop(Logop::LessThanOrEqualTo)),
-        mksym(">", Symbol::Logop(Logop::GreaterThan)),
-        mksym(">=", Symbol::Logop(Logop::GreaterThanOrEqualTo)),
-        mksym("==", Symbol::Logop(Logop::EqualTo)),
-        mksym("!=", Symbol::Logop(Logop::NotEqualTo)),
-        mksym("!", Symbol::Logop(Logop::Not)),
+        mksym("<", Symbol::Op(Op::LessThan)),
+        mksym("<=", Symbol::Op(Op::LessThanOrEqualTo)),
+        mksym(">", Symbol::Op(Op::GreaterThan)),
+        mksym(">=", Symbol::Op(Op::GreaterThanOrEqualTo)),
+        mksym("==", Symbol::Op(Op::EqualTo)),
+        mksym("!=", Symbol::Op(Op::NotEqualTo)),
+        mksym("!", Symbol::Op(Op::Not)),
 
         mksym("+", Symbol::Op(Op::Plus)),
         mksym("-", Symbol::Op(Op::Minus)),
@@ -128,14 +134,12 @@ pub enum Symbol {
     Name(String),
     String(String),
     Number(f64),
-    Logop(Logop),
     Op(Op),
+    Bool(bool),
     Return,
-    Include,
-    InternalCall {
-        name: String,
-        args: Vec<Vec<ExpressionFragment>>,
-    },
+    Loop,
+    Break,
+    Load,
 }
 #[derive(Debug, Clone)]
 pub enum Op {
@@ -144,9 +148,6 @@ pub enum Op {
     Multiply,
     Divide,
     Power,
-}
-#[derive(Debug, Clone)]
-pub enum Logop {
     LessThan,
     LessThanOrEqualTo,
     GreaterThan,

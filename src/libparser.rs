@@ -1,0 +1,50 @@
+use core::panic;
+use std::collections::HashMap;
+use std::fs;
+use std::path;
+pub fn load_lib(libname: String) -> Library {
+    let rawfs =
+        fs::read_to_string(&libname).expect(&format!("could not locate library {}", &libname));
+    match json::parse(&rawfs) {
+        Ok(json) => {
+            let static_loc = &json["static_loc"].to_string();
+            if path::Path::new(static_loc).exists() {
+                let rawbinds = &json["binds"];
+                let mut binds = HashMap::new();
+                rawbinds.entries().for_each(|f| {
+                    binds.insert(
+                        f.0.to_string(),
+                        Bind {
+                            name: f.0.to_string(),
+                            args: f.1["args"].members().map(|f| f.to_string()).collect(),
+                            bound_symbol: f.1["bound_symbol"].to_string(),
+                        },
+                    );
+                });
+                Library {
+                    name: json["name"].to_string(),
+                    static_loc: static_loc.clone(),
+                    binds,
+                }
+            } else {
+                panic!(
+                    "could not find static object {} requested in library {}",
+                    static_loc, libname
+                );
+            }
+        }
+        Err(e) => panic!("{:?}", e),
+    }
+}
+#[derive(Debug, Clone)]
+pub struct Library {
+    name: String,
+    static_loc: String,
+    binds: HashMap<String, Bind>,
+}
+#[derive(Debug, Clone)]
+pub struct Bind {
+    name: String,
+    args: Vec<String>,
+    bound_symbol: String,
+}

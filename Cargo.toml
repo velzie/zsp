@@ -9,6 +9,8 @@ edition = "2021"
 lazy_static = "1.4.0"
 substring = "1.4.5"
 termion = "*"
+json="*"
+
 
 [[bin]]
 name = "zsp"

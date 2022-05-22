@@ -1,9 +1,9 @@
 use crate::lexer::Symbol;
-use crate::parser::Fragment;
+use crate::parser::Block;
 use std::io;
 use termion::{clear, color, style};
 
-pub fn unexpected_symbol_exception(input: &String, idx: usize, context: Fragment, symbol: Symbol) {
+pub fn unexpected_symbol_exception(input: &String, idx: usize, context: Block, symbol: Symbol) {
     exception(
         input,
         idx,
@@ -43,12 +43,13 @@ pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
         offset
     );
     println!(
-        "{}{}ERROR:{}{}{} ^       {}",
+        "{}{}ERROR:{}{}{}{}^       {}",
         color::Bg(color::Cyan),
         style::Bold,
         color::Fg(color::Reset),
         color::Bg(color::Reset),
         style::Reset,
+        " ".repeat(offset - 1),
         errtype
     );
     println!(

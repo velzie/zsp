@@ -1,0 +1,13 @@
+{
+    "name": "stdout",
+    "static_loc": "stdout.so",
+    "binds": {
+        "print": {
+            "args": [
+                "input"
+            ],
+            "bound_symbol":"stdout_print",
+            "description": "prints to standard output"
+        }
+    }
+}
