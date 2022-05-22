@@ -3,7 +3,9 @@
 use crate::lexer::Op;
 use crate::lexer::Symbol;
 use crate::lexer::Token;
-use crate::libparser;
+use crate::libp;
+use crate::libp::Bind;
+use crate::libp::Library;
 // use
 use std::collections::HashMap;
 use std::vec;
@@ -13,13 +15,30 @@ use crate::exceptions::*;
 pub fn parse(tkns: Vec<Token>, input: String) -> Root {
     let mut tokens = tkns.clone();
     let mut funsyms = make_funsyms(&mut tokens, &input);
-    // let libs = find_loads(&mut tokens, &input).iter().map(|f|libparser::load_lib(f.to_string())).collect();
+    let libs: Vec<Library> = find_loads(&mut tokens, &input)
+        .iter()
+        .map(|f| libp::load_lib(f.to_string()))
+        .collect();
+
+    for lib in libs.clone() {
+        for bind in lib.binds {
+            funsyms.insert(
+                bind.0.clone(),
+                FunSym {
+                    name: bind.0,
+                    source: None,
+                    args: bind.1.args,
+                },
+            );
+        }
+    }
 
     let rootblock = parse_block(&tokens, &input, &funsyms, None, &vec![], 0, tokens.len());
     let functions = make_functions(&funsyms, &input, &rootblock);
     Root {
         root: rootblock,
         functions,
+        libraries: libs,
     }
 }
 fn make_functions(
@@ -122,7 +141,7 @@ fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
                     Symbol::Name(libname) => {
                         loads.push(libname.clone());
                         tokens.drain(idx - 1..idx + 1);
-                        idx -= 2;
+                        idx -= 1;
                     }
                     _ => unexpected_symbol_exception(
                         &input,
@@ -404,7 +423,11 @@ fn parse_block(
                                 .clone(), // potentially unsafe code whatever
                             })
                         }
-                        _ => unexpected_name_exception(&input, token.index, token.symbol.clone()),
+                        _ => unexpected_name_exception(
+                            &input,
+                            tokens[idx - 1].index,
+                            tokens[idx - 1].symbol.clone(),
+                        ),
                     }
                 }
             },
@@ -476,6 +499,7 @@ fn parse_fncall(
 pub struct Root {
     pub root: Block,
     pub functions: HashMap<String, Function>, // includes: Vec<String>
+    pub libraries: Vec<Library>,
 }
 
 #[derive(Debug, Clone)]

@@ -10,7 +10,8 @@ lazy_static = "1.4.0"
 substring = "1.4.5"
 termion = "*"
 json="*"
-
+libloading="*"
+typed-arena="*"
 
 [[bin]]
 name = "zsp"

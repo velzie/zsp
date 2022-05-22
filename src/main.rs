@@ -7,7 +7,7 @@ extern crate lazy_static;
 mod exceptions;
 mod interpreter;
 mod lexer;
-mod libparser;
+mod libp;
 mod parser;
 
 fn main() {
@@ -19,7 +19,7 @@ fn main() {
         let tokens = lexer::lex(contents.clone());
         println!("{:?}", tokens);
         let parsed = parser::parse(tokens, contents.clone());
-
+        println!("{:?}", parsed);
         interpreter::interpret(parsed);
     } else {
         panic!("no file provided");

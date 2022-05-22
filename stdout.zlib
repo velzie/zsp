@@ -1,6 +1,6 @@
 {
     "name": "stdout",
-    "static_loc": "stdout.so",
+    "static_loc": "/home/ce/Documents/GitHub/zsp/stdout.so",
     "binds": {
         "print": {
             "args": [

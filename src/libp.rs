@@ -38,13 +38,13 @@ pub fn load_lib(libname: String) -> Library {
 }
 #[derive(Debug, Clone)]
 pub struct Library {
-    name: String,
-    static_loc: String,
-    binds: HashMap<String, Bind>,
+    pub name: String,
+    pub static_loc: String,
+    pub binds: HashMap<String, Bind>,
 }
 #[derive(Debug, Clone)]
 pub struct Bind {
-    name: String,
-    args: Vec<String>,
-    bound_symbol: String,
+    pub name: String,
+    pub args: Vec<String>,
+    pub bound_symbol: String,
 }
