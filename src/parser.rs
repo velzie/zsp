@@ -4,7 +4,6 @@ use crate::lexer::Op;
 use crate::lexer::Symbol;
 use crate::lexer::Token;
 use crate::libp;
-use crate::libp::Bind;
 use crate::libp::Library;
 // use
 use std::collections::HashMap;
@@ -14,12 +13,12 @@ use crate::exceptions::*;
 // -> (Block, Vec<Fragment>)
 pub fn parse(tkns: Vec<Token>, input: String) -> Root {
     let mut tokens = tkns.clone();
-    let mut funsyms = make_funsyms(&mut tokens, &input);
     let libs: Vec<Library> = find_loads(&mut tokens, &input)
         .iter()
         .map(|f| libp::load_lib(f.to_string()))
         .collect();
 
+    let mut funsyms = HashMap::new();
     for lib in libs.clone() {
         for bind in lib.binds {
             funsyms.insert(
@@ -32,8 +31,12 @@ pub fn parse(tkns: Vec<Token>, input: String) -> Root {
             );
         }
     }
+    dbg!(&funsyms);
+    make_funsyms(&mut tokens, &input, &mut funsyms);
 
     let rootblock = parse_block(&tokens, &input, &funsyms, None, &vec![], 0, tokens.len());
+
+    dbg!(&rootblock);
     let functions = make_functions(&funsyms, &input, &rootblock);
     Root {
         root: rootblock,
@@ -72,47 +75,67 @@ fn make_functions(
     }
     functions
 }
-fn make_funsyms(tokens: &mut Vec<Token>, input: &String) -> HashMap<String, FunSym> {
+fn make_funsyms(tokens: &mut Vec<Token>, input: &String, funsyms: &mut HashMap<String, FunSym>) {
     let mut idx = 0;
-    let mut funsyms: HashMap<String, FunSym> = HashMap::new();
     while idx < tokens.len() {
         match tokens[idx].symbol.clone() {
             Symbol::Name(funcname) => {
-                let startidx = idx;
-                let mut args: Vec<String> = vec![];
-                loop {
-                    idx += 1;
-                    match &tokens[idx].symbol.clone() {
-                        Symbol::BlockStart => {
-                            idx = next_symbol_block(
-                                &tokens,
-                                &input,
-                                idx,
-                                Symbol::BlockStart,
-                                Symbol::BlockEnd,
-                            );
-                            let mut tkns: Vec<Token> = tokens.drain(startidx..idx + 1).collect(); //drains the tokens. messy but i can't think of a better way of doing this
-                            tkns.pop();
-                            tkns.drain(0..args.len() + 2);
-                            idx = startidx;
-                            funsyms.insert(
-                                funcname.clone(),
-                                FunSym {
-                                    name: funcname.to_string(),
-                                    source: Some(tkns),
-                                    args: args,
-                                },
-                            );
-                            break;
-                        }
-                        Symbol::Name(arg) => {
-                            if arg == &funcname {
-                                // assume no arguments
-                                break;
+                match funsyms.get(&funcname) {
+                    Some(sym) => {
+                        parse_args(
+                            &tokens,
+                            &input,
+                            &funsyms,
+                            &Block {
+                                children: vec![],
+                                variables: vec![],
+                            },
+                            &vec![],
+                            sym.args.len(),
+                            &mut idx,
+                        );
+                        idx += 1;
+                        break;
+                    }
+                    None => {
+                        let startidx = idx;
+                        let mut args: Vec<String> = vec![];
+                        loop {
+                            idx += 1;
+                            match &tokens[idx].symbol.clone() {
+                                Symbol::BlockStart => {
+                                    idx = next_symbol_block(
+                                        &tokens,
+                                        &input,
+                                        idx,
+                                        Symbol::BlockStart,
+                                        Symbol::BlockEnd,
+                                    );
+                                    let mut tkns: Vec<Token> =
+                                        tokens.drain(startidx..idx + 1).collect(); //drains the tokens. messy but i can't think of a better way of doing this
+                                    tkns.pop();
+                                    tkns.drain(0..args.len() + 2);
+                                    idx = startidx;
+                                    funsyms.insert(
+                                        funcname.clone(),
+                                        FunSym {
+                                            name: funcname.to_string(),
+                                            source: Some(tkns),
+                                            args: args,
+                                        },
+                                    );
+                                    break;
+                                }
+                                Symbol::Name(arg) => {
+                                    if arg == &funcname {
+                                        // assume no arguments
+                                        break;
+                                    }
+                                    args.push(arg.to_string())
+                                }
+                                _ => break,
                             }
-                            args.push(arg.to_string())
                         }
-                        _ => break,
                     }
                 }
             }
@@ -124,12 +147,15 @@ fn make_funsyms(tokens: &mut Vec<Token>, input: &String) -> HashMap<String, FunS
                 //WARNGIN : WILL ACT WEIRDLY ON NESTED IF BLOCKS. SHOULDN"T MATTER
                 idx = endx;
             }
+            Symbol::Load => {
+                idx += 2;
+            }
             _ => idx += 1,
         }
     }
-    funsyms
 }
 fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
+    dbg!(&tokens);
     let mut idx = 0;
     let mut loads = vec![];
     while idx < tokens.len() {
@@ -247,12 +273,10 @@ fn parse_args(
                         )
                     }
                 }
-                _ => unexpected_symbol_exception(
-                    &input,
-                    token.index,
-                    scope.clone(),
-                    token.symbol.clone(),
-                ),
+                _ => {
+                    *idx -= 2;
+                    break;
+                }
             }
         }
         if exp.len() > 0 {
@@ -371,28 +395,46 @@ fn parse_block(
 
                 if idx < tokens.len() {
                     match &tokens[idx].symbol {
-                        Symbol::BlockStart => {
-                            let elseidx = next_symbol_block(
-                                &tokens,
-                                &input,
-                                idx,
-                                Symbol::BlockStart,
-                                Symbol::BlockEnd,
-                            ); // not very clear code. this seems to look for the end of the else statement
+                        Symbol::Else => {
                             idx += 1;
-                            falseblock = Some(parse_block(
-                                &tokens,
-                                &input,
-                                &funsyms,
-                                Some(&root),
-                                &args,
-                                idx,
-                                elseidx,
-                            ));
+                            if idx < tokens.len() {
+                                match &tokens[idx].symbol {
+                                    Symbol::BlockStart => {
+                                        let elseidx = next_symbol_block(
+                                            &tokens,
+                                            &input,
+                                            idx,
+                                            Symbol::BlockStart,
+                                            Symbol::BlockEnd,
+                                        ); // not very clear code. this seems to look for the end of the else statement
+                                        idx += 1;
+                                        falseblock = Some(parse_block(
+                                            &tokens,
+                                            &input,
+                                            &funsyms,
+                                            Some(&root),
+                                            &args,
+                                            idx,
+                                            elseidx,
+                                        ));
 
-                            idx = elseidx + 1;
+                                        idx = elseidx + 1;
+                                    }
+                                    Symbol::If => {
+                                        panic!("sorry that's complicated and i'm dumb");
+                                    }
+                                    _ => unexpected_symbol_exception(
+                                        &input,
+                                        token.index,
+                                        root.clone(),
+                                        token.symbol.clone(),
+                                    ),
+                                }
+                            }
                         }
-                        _ => {}
+                        _ => {
+                            idx -= 1;
+                        }
                     }
                 }
                 root.children.push(Fragment::If {
@@ -431,6 +473,21 @@ fn parse_block(
                     }
                 }
             },
+            Symbol::BlockStart => {
+                let endidx =
+                    next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
+                idx += 1;
+                root.children.push(Fragment::Block(parse_block(
+                    &tokens,
+                    &input,
+                    &funsyms,
+                    Some(&root),
+                    &args,
+                    idx,
+                    endidx,
+                )));
+                idx = endidx;
+            }
             Symbol::Loop => {
                 idx += 1;
                 let endidx =
@@ -521,6 +578,7 @@ pub enum Fragment {
         trueblock: Block,
         falseblock: Option<Block>,
     },
+    Block(Block),
     Loop(Block),
     Break,
     Assignment {

@@ -19,8 +19,8 @@ fn main() {
         let tokens = lexer::lex(contents.clone());
         println!("{:?}", tokens);
         let parsed = parser::parse(tokens, contents.clone());
-        println!("{:?}", parsed);
-        interpreter::interpret(parsed);
+        // println!("{:?}", parsed);
+        // interpreter::interpret(parsed);
     } else {
         panic!("no file provided");
     }

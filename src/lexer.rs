@@ -11,8 +11,8 @@ lazy_static! {
         (';', None),
         (' ', None),
         ('\u{0017}',None),
-        // ('(', Some(Symbol::ParenStart)),
-        // (')', Some(Symbol::ParenEnd)),
+        ('(', Some(Symbol::ParenStart)),
+        (')', Some(Symbol::ParenEnd)),
         ('{', Some(Symbol::BlockStart)),
         ('}', Some(Symbol::BlockEnd)),
         // ('.', Symbol::If),
@@ -26,6 +26,7 @@ lazy_static! {
         mksym("true",Symbol::Bool(true)),
         mksym("false",Symbol::Bool(false)),
         mksym("=", Symbol::Assign),
+        mksym("else", Symbol::Else),
 
         mksym("<", Symbol::Op(Op::LessThan)),
         mksym("<=", Symbol::Op(Op::LessThanOrEqualTo)),
@@ -129,8 +130,8 @@ pub enum Symbol {
     If,
     BlockStart,
     BlockEnd,
-    // ParenStart,
-    // ParenEnd,
+    ParenStart,
+    ParenEnd,
     Name(String),
     String(String),
     Number(f64),
@@ -139,6 +140,7 @@ pub enum Symbol {
     Return,
     Loop,
     Break,
+    Else,
     Load,
 }
 #[derive(Debug, Clone)]

@@ -2,6 +2,31 @@ use std::{collections::HashMap, hash::Hash, ptr::NonNull, rc::Rc};
 
 use crate::parser::{self, Block, Constant, ExpressionFragment, Fragment, Function, Root};
 use typed_arena::Arena;
+
+
+
+// inp structure ideas:
+//1: simplest possible solutions
+// single function for parsing a scope, doesn't return but instead mutates a scope, when a return is called 
+
+// or
+
+// returns an enum, none for no return and if there is a return keep going back on the stack until a function block is hit
+
+
+//2: undefined behavior:
+// self referential struct with parent owning child, store return value within struct and iterate from there
+
+
+//3. pointers
+
+// run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain  
+
+
+
+
+
+
 pub fn interpret(root: Root) {
     // dbg!(root);
     // root.root.Run();
@@ -43,22 +68,10 @@ pub fn interpret(root: Root) {
                 },
             );
         }
+        let mut stack:Vec<Scope> = vec![];
+        stack.push(root.root.to_scope(HashMap::new()));
+        while stack.len() > 0{
 
-        root.root.to_scope(HashMap::new()).execute(&functions);
-    }
-}
-
-impl Block {
-    pub fn to_scope(&self, args: HashMap<String, Rc<Value>>) -> Scope {
-        Scope {
-            variables: args,
-            structure: self.clone(),
-        }
-    }
-}
-impl Scope {
-    pub unsafe fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
-        for fragment in &self.structure.children {
             match fragment {
                 // Fragment::Break=>{
                 //     match  {
@@ -102,6 +115,28 @@ impl Scope {
                 }
                 _ => (),
             };
+
+            stack.pop();
+            // pop stack
+        }
+
+        root.root.to_scope(HashMap::new()).execute(&functions);
+    }
+}
+
+impl Block {
+    pub fn to_scope(&self, args: HashMap<String, Rc<Value>>) -> Scope {
+        Scope {
+            scopetype: ScopeType::Function,
+            variables: args,
+            structure: self.clone(),
+        }
+    }
+}
+impl Scope {
+    pub unsafe fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
+        for fragment in &self.structure.children {
+            
         }
         Value::Null
     }
@@ -144,12 +179,20 @@ impl RFunction<'_> {
 }
 pub enum FunctionType<'a> {
     InternalFunction(parser::Function),
-    ExternalFunction(libloading::Symbol<'a, unsafe extern "C" fn(Vec<Value>) -> Value>),
+    ExternalFunction(libloading::Symbol<'a, unsafe extern "C" fn(Vec<Value>) -> Value>), // whattttt
 }
 #[derive(Debug, Clone)]
 pub struct Scope {
     variables: HashMap<String, Rc<Value>>,
     structure: Block,
+    scopetype: ScopeType,
+}
+#[derive(Debug, Clone)]
+
+enum ScopeType {
+    Root,
+    Function,
+    Loop,
 }
 #[derive(Debug, Clone)]
 #[repr(C)]
