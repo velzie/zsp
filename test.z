@@ -1,24 +1,17 @@
 load std.zlib
-argless{
-    return "wow that was argless"
+
+
+put "morb stanley?"
+anser = get
+
+if anser{
+    put "morbing stanley"
+    put "what morb level should stanley recieve"
+    level = get
+
+    put "morbing stanley:"
+    put "level:"
+    put level
+}else{
+    put "stanley is spared from being morbed"
 }
-anotherfunction anargument{
-    afunction anargument
-}
-
-afunction anargument{
-    put anargument
-}
-
-
-
-
-put argless
-
-
-
-put afunction 2
-
-
-
-put afunction argless

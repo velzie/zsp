@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, f32::consts::PI, fs, ops::DerefMut, rc::Rc};
+use std::{
+    borrow::Borrow, cell::RefCell, collections::HashMap, f32::consts::PI, fs, ops::DerefMut, rc::Rc,
+};
 
 use crate::parser::{self, Block, Constant, ExpressionFragment, Fragment, Function, Root};
 use typed_arena::Arena;
@@ -61,11 +63,20 @@ pub fn interpret(root: Root) {
             },
         );
     }
+
+    run_root(
+        root.root.to_scope(ScopeType::Block, HashMap::new()),
+        &functions,
+    );
+    // root.root.to_scope(HashMap::new()).execute(&functions);
+}
+fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
     let mut stack: Vec<Scope> = vec![];
-    stack.push(root.root.to_scope(ScopeType::Block, HashMap::new()));
+    stack.push(root);
     'stack: while stack.len() > 0 {
         let mut pointer = stack.last_mut().unwrap();
         while pointer.idx < pointer.structure.children.len() {
+            // dbg!(&pointer);
             let frag = &pointer.structure.children[pointer.idx];
 
             match frag {
@@ -74,59 +85,44 @@ pub fn interpret(root: Root) {
                     trueblock,
                     falseblock,
                 } => {
-                    if evaluate_expression(condition).to_bool() {
+                    pointer.idx += 1;
+                    if pointer.evaluate_expression(condition, functions).to_bool() {
                         let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
                         stack.push(tscope);
                         continue 'stack;
                     } else if let Some(fb) = falseblock {
                         let fscope = fb.to_scope(ScopeType::If, pointer.variables.clone());
+                        // dbg!(&fscope);
                         stack.push(fscope);
                         continue 'stack;
                     }
                 }
                 Fragment::Call(call) => {
-                    let rf = functions.get(&call.name).unwrap();
-                    let args: Vec<Value> =
-                        call.args.iter().map(|f| evaluate_expression(f)).collect();
-
-                    match &rf.func {
-                        FunctionType::ExternalFunction(extfnc) => unsafe {
-                            extfnc(args);
-                        },
-                        FunctionType::InternalFunction(func) => {
-                            let mut passedargs = pointer.variables.clone();
-                            for (i, argname) in func.args.iter().enumerate() {
-                                passedargs.insert(argname.clone(), RefCell::new(args[i].clone()));
-                            }
-                            let nsc = func.source.to_scope(ScopeType::Function, passedargs);
-                            stack.push(nsc);
-                            continue 'stack;
-                        }
-                    }
+                    pointer.eval_call(call, functions);
 
                     // evaluate_expression(cal);
                 }
-                Fragment::Assignment { name, value } => match pointer.variables.get_mut(name) {
-                    Some(rc) => {
-                        *rc.borrow_mut() = evaluate_expression(value);
+                Fragment::Assignment { name, value } => {
+                    if pointer.variables.contains_key(name) {
+                        *pointer.variables.get_mut(name).unwrap().borrow_mut() =
+                            pointer.evaluate_fragment(&value[0], functions);
                         // this feels very wrong
                         // buuuut it compiles
+                    } else {
+                        pointer.variables.insert(
+                            name.clone(),
+                            RefCell::new(pointer.evaluate_expression(value, functions)),
+                        );
                     }
-                    None => {
-                        pointer
-                            .variables
-                            .insert(name.clone(), RefCell::new(evaluate_expression(value)));
-                    }
-                },
-                Fragment::Block(block) => {
-                    let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
-                    stack.push(scope);
-                    continue 'stack;
                 }
+                // Fragment::Block(block) => {
+                //     let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
+                //     stack.push(scope);
+                //     continue 'stack;
+                // }
                 _ => {}
             }
-
-            continue 'stack;
+            pointer.idx += 1;
         }
         // match fragment {
         //     // Fragment::Break=>{
@@ -171,53 +167,81 @@ pub fn interpret(root: Root) {
         //     }
         //     _ => (),
         // };
-
+        // dbg!("popped stack");
         stack.pop();
         // pop stack
-
-        loop {
-            //function parsing code here
-            break;
-            // 'fncparse: {
-
-            // }
-            //
-        }
     }
-
-    // root.root.to_scope(HashMap::new()).execute(&functions);
+    Value::Null
 }
 
 impl Block {
     pub fn to_scope(&self, stype: ScopeType, args: HashMap<String, RefCell<Value>>) -> Scope {
         Scope {
-            scopetype: ScopeType::Function,
+            scopetype: stype,
             variables: args,
             structure: self.clone(),
             idx: 0,
         }
     }
 }
-// impl Scope {
+impl Scope {
+    pub fn evaluate_expression(
+        &self,
+        expression: &Vec<ExpressionFragment>,
+        functions: &HashMap<String, RFunction>,
+    ) -> Value {
+        self.evaluate_fragment(&expression[0], functions)
+    }
+    pub fn evaluate_fragment(
+        &self,
+        fragment: &ExpressionFragment,
+        functions: &HashMap<String, RFunction>,
+    ) -> Value {
+        match fragment {
+            ExpressionFragment::Constant(c) => match c {
+                Constant::Bool(b) => Value::Bool(b.clone()),
+                Constant::String(s) => Value::String(s.clone()),
+                Constant::Number(n) => Value::Number(n.clone()),
+            },
+            ExpressionFragment::Call(call) => self.eval_call(call, &functions),
+            ExpressionFragment::Name(name) => self.variables.get(name).unwrap().borrow().clone(),
+            // pass by value ^
+            _ => Value::Null,
+        }
+    }
+    pub fn eval_call(&self, call: &parser::Call, functions: &HashMap<String, RFunction>) -> Value {
+        let rf = functions.get(&call.name).unwrap();
+        let args: Vec<Value> = call
+            .args
+            .iter()
+            .map(|f| self.evaluate_expression(f, &functions))
+            .collect();
+        self.call_function(rf, args, functions)
+    }
+    pub fn call_function(
+        &self,
+        rf: &RFunction,
+        args: Vec<Value>,
+        functions: &HashMap<String, RFunction>,
+    ) -> Value {
+        match &rf.func {
+            FunctionType::ExternalFunction(extfnc) => unsafe { extfnc(args) },
+            FunctionType::InternalFunction(func) => {
+                let mut passedargs = self.variables.clone();
+                for (i, argname) in func.args.iter().enumerate() {
+                    passedargs.insert(argname.clone(), RefCell::new(args[i].clone()));
+                }
+                let nsc = func.source.to_scope(ScopeType::Function, passedargs);
+                run_root(nsc, functions)
+            }
+        }
+    }
+}
 //     pub fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
 //         for fragment in &self.structure.children {}
 //         Value::Null
 //     }
 
-fn evaluate_expression(expression: &Vec<ExpressionFragment>) -> Value {
-    evaluate_fragment(&expression[0])
-}
-fn evaluate_fragment(fragment: &ExpressionFragment) -> Value {
-    match fragment {
-        ExpressionFragment::Constant(c) => match c {
-            Constant::Bool(b) => Value::Bool(b.clone()),
-            Constant::String(s) => Value::String(s.clone()),
-            Constant::Number(n) => Value::Number(n.clone()),
-        },
-        // ExpressionFragment::Name()
-        _ => Value::Null,
-    }
-}
 pub struct RFunction<'a> {
     pub name: String,
     pub args: Vec<String>,
@@ -270,10 +294,18 @@ impl Value {
     pub fn to_bool(&self) -> bool {
         match &self {
             Self::Bool(b) => return *b,
-            _ => panic!(),
+            Self::Number(n) => {
+                return n > &0.0f64;
+            }
+            Self::Null => return false,
+            Self::String(s) => {
+                return true;
+                // if let Ok(b) = s.parse::<bool>() {
+                //     return b;
+                // } else {
+                //     return false;
+                // }
+            }
         }
-    }
-    pub fn change(&mut self, val: Value) {
-        *self = val;
     }
 }

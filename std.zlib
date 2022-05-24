@@ -1,6 +1,6 @@
 {
     "name": "std",
-    "static_loc": "/home/coolelectronics/Documents/GitHub/zsp/std.so",
+    "static_loc": "/home/coolelectronics/Documents/GitHub/zsp/libstd.so",
     "binds": {
         "put": {
             "args": [

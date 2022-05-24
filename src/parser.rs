@@ -31,12 +31,10 @@ pub fn parse(tkns: Vec<Token>, input: String) -> Root {
             );
         }
     }
-    dbg!(&funsyms);
     make_funsyms(&mut tokens, &input, &mut funsyms);
 
     let rootblock = parse_block(&tokens, &input, &funsyms, None, &vec![], 0, tokens.len());
 
-    dbg!(&rootblock);
     let functions = make_functions(&funsyms, &input, &rootblock);
     Root {
         root: rootblock,
@@ -82,31 +80,31 @@ fn make_funsyms(tokens: &mut Vec<Token>, input: &String, funsyms: &mut HashMap<S
             Symbol::Name(funcname) => {
                 match funsyms.get(&funcname) {
                     Some(sym) => {
-                        // we want to avoid calling parse_args since it prevents functions from being called before definition. avoid using this
-                        // i
+                        //     // we want to avoid calling parse_args since it prevents functions from being called before definition. avoid using this
+                        //     // i
 
-                        // let mut dx = idx;
-                        // loop{
-                        //     match &tokens[dx]{
+                        //     // let mut dx = idx;
+                        //     // loop{
+                        //     //     match &tokens[dx]{
 
-                        //     }
-                        // }
-                        parse_args(
-                            &tokens,
-                            &input,
-                            &funsyms,
-                            &Block {
-                                children: vec![],
-                                variables: vec![],
-                            },
-                            &vec![],
-                            sym.args.len(),
-                            &mut idx,
-                        );
+                        //     //     }
+                        //     // }
+                        //     parse_args(
+                        //         &tokens,
+                        //         &input,
+                        //         &funsyms,
+                        //         &Block {
+                        //             children: vec![],
+                        //             variables: vec![],
+                        //         },
+                        //         &vec![],
+                        //         sym.args.len(),
+                        //         &mut idx,
+                        //     );
                         idx += 1;
                         break;
                     }
-                    None => {
+                    _ => {
                         let startidx = idx;
                         let mut args: Vec<String> = vec![];
                         loop {
@@ -164,7 +162,6 @@ fn make_funsyms(tokens: &mut Vec<Token>, input: &String, funsyms: &mut HashMap<S
     }
 }
 fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
-    dbg!(&tokens);
     let mut idx = 0;
     let mut loads = vec![];
     while idx < tokens.len() {
