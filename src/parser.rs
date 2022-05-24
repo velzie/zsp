@@ -82,6 +82,15 @@ fn make_funsyms(tokens: &mut Vec<Token>, input: &String, funsyms: &mut HashMap<S
             Symbol::Name(funcname) => {
                 match funsyms.get(&funcname) {
                     Some(sym) => {
+                        // we want to avoid calling parse_args since it prevents functions from being called before definition. avoid using this
+                        // i
+
+                        // let mut dx = idx;
+                        // loop{
+                        //     match &tokens[dx]{
+
+                        //     }
+                        // }
                         parse_args(
                             &tokens,
                             &input,
@@ -231,10 +240,10 @@ fn parse_args(
                                     exp.push(ExpressionFragment::Name(n));
                                 } else if funsyms.contains_key(&n) {
                                     let fnsym = funsyms.get(&n).unwrap();
-                                    exp.push(parse_fncall(
+                                    exp.push(ExpressionFragment::Call(parse_fncall(
                                         &tokens, &input, &funsyms, &scope, &exargs, &mut *idx,
                                         &fnsym,
-                                    ));
+                                    )));
                                 } else {
                                     unexpected_name_exception(&input, token.index, Symbol::Name(n));
                                     panic!();
@@ -445,7 +454,7 @@ fn parse_block(
             }
             Symbol::Name(name) => match funsyms.get(name) {
                 Some(fnsym) => {
-                    root.children.push(Fragment::InvokeExpression(parse_fncall(
+                    root.children.push(Fragment::Call(parse_fncall(
                         &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
                     )));
                 }
@@ -529,7 +538,7 @@ fn parse_fncall(
     args: &Vec<String>,
     idx: &mut usize,
     fnsym: &FunSym,
-) -> ExpressionFragment {
+) -> Call {
     let fnargs = if fnsym.args.len() != 0 {
         *idx += 1;
         parse_args(
@@ -546,7 +555,7 @@ fn parse_fncall(
     };
 
     // this is the one of the worst ternary implementations i've ever seen but ok
-    return ExpressionFragment::Call {
+    return Call {
         name: fnsym.name.clone(),
         args: fnargs,
     };
@@ -578,6 +587,7 @@ pub enum Fragment {
         trueblock: Block,
         falseblock: Option<Block>,
     },
+    Call(Call),
     Block(Block),
     Loop(Block),
     Break,
@@ -586,7 +596,6 @@ pub enum Fragment {
         value: Vec<ExpressionFragment>,
     },
     Return(Vec<ExpressionFragment>),
-    InvokeExpression(ExpressionFragment),
 }
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -599,10 +608,12 @@ pub enum ExpressionFragment {
     Name(String), //remember that this could also be a function call :/
     Op(Op),
     Constant(Constant),
-    Call {
-        name: String,
-        args: Vec<Vec<ExpressionFragment>>,
-    },
+    Call(Call),
+}
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub name: String,
+    pub args: Vec<Vec<ExpressionFragment>>,
 }
 #[derive(Debug, Clone)]
 pub enum Constant {

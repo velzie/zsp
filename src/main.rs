@@ -17,10 +17,10 @@ fn main() {
         let contents = fs::read_to_string(&args[1]).expect("could not read file");
 
         let tokens = lexer::lex(contents.clone());
-        println!("{:?}", tokens);
+        // println!("{:?}", tokens);
         let parsed = parser::parse(tokens, contents.clone());
         // println!("{:?}", parsed);
-        // interpreter::interpret(parsed);
+        interpreter::interpret(parsed);
     } else {
         panic!("no file provided");
     }

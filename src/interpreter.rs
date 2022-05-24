@@ -1,31 +1,22 @@
-use std::{collections::HashMap, hash::Hash, ptr::NonNull, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, f32::consts::PI, fs, ops::DerefMut, rc::Rc};
 
 use crate::parser::{self, Block, Constant, ExpressionFragment, Fragment, Function, Root};
 use typed_arena::Arena;
 
-
-
 // inp structure ideas:
 //1: simplest possible solutions
-// single function for parsing a scope, doesn't return but instead mutates a scope, when a return is called 
+// single function for parsing a scope, doesn't return but instead mutates a scope, when a return is called
 
 // or
 
 // returns an enum, none for no return and if there is a return keep going back on the stack until a function block is hit
 
-
 //2: undefined behavior:
 // self referential struct with parent owning child, store return value within struct and iterate from there
 
-
 //3. pointers
 
-// run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain  
-
-
-
-
-
+// run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
 
 pub fn interpret(root: Root) {
     // dbg!(root);
@@ -36,11 +27,12 @@ pub fn interpret(root: Root) {
 
     // load dlls
 
-    unsafe {
-        let heap = Arena::new();
-        // yay entire program is unsafe wooo
-        for lib in root.libraries {
-            // for root
+    // unsafe {
+    let heap = Arena::new();
+    // yay entire program is unsafe wooo
+    for lib in root.libraries {
+        // for root
+        unsafe {
             let libobj = heap.alloc(libloading::Library::new(lib.static_loc).unwrap()); // lazy bad unsafe garbage code
 
             for bind in lib.binds {
@@ -56,91 +48,161 @@ pub fn interpret(root: Root) {
                 );
             }
         }
+    }
 
-        for fun in root.functions {
-            let cfn = fun.1.clone();
-            functions.insert(
-                fun.0,
-                RFunction {
-                    name: cfn.name.clone(),
-                    args: cfn.args.clone(),
-                    func: FunctionType::InternalFunction(cfn.clone()),
-                },
-            );
-        }
-        let mut stack:Vec<Scope> = vec![];
-        stack.push(root.root.to_scope(HashMap::new()));
-        while stack.len() > 0{
+    for fun in root.functions {
+        let cfn = fun.1.clone();
+        functions.insert(
+            fun.0,
+            RFunction {
+                name: cfn.name.clone(),
+                args: cfn.args.clone(),
+                func: FunctionType::InternalFunction(cfn.clone()),
+            },
+        );
+    }
+    let mut stack: Vec<Scope> = vec![];
+    stack.push(root.root.to_scope(ScopeType::Block, HashMap::new()));
+    'stack: while stack.len() > 0 {
+        let mut pointer = stack.last_mut().unwrap();
+        while pointer.idx < pointer.structure.children.len() {
+            let frag = &pointer.structure.children[pointer.idx];
 
-            match fragment {
-                // Fragment::Break=>{
-                //     match  {
-
-                //     }
-                // }
+            match frag {
                 Fragment::If {
+                    condition,
                     trueblock,
                     falseblock,
-                    condition,
                 } => {
-                    if evaluate_expression(&condition).to_bool() {
-                        trueblock.to_scope(HashMap::new()).execute(&functions);
-                    } else {
-                        match falseblock {
-                            Some(b) => b.to_scope(HashMap::new()).execute(&functions),
-                            None => Value::Null,
-                        };
+                    if evaluate_expression(condition).to_bool() {
+                        let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
+                        stack.push(tscope);
+                        continue 'stack;
+                    } else if let Some(fb) = falseblock {
+                        let fscope = fb.to_scope(ScopeType::If, pointer.variables.clone());
+                        stack.push(fscope);
+                        continue 'stack;
                     }
                 }
-                Fragment::Assignment { name, value } => {
-                    self.variables
-                        .insert(name.clone(), Rc::new(evaluate_expression(value)));
-                }
-                Fragment::InvokeExpression(exp) => {
-                    match &exp {
-                        ExpressionFragment::Call { name, args } => match functions.get(name) {
-                            Some(func) => {
-                                func.call(
-                                    args.iter().map(|f| evaluate_expression(f)).collect(),
-                                    functions,
-                                );
-                            }
-                            None => panic!(),
+                Fragment::Call(call) => {
+                    let rf = functions.get(&call.name).unwrap();
+                    let args: Vec<Value> =
+                        call.args.iter().map(|f| evaluate_expression(f)).collect();
+
+                    match &rf.func {
+                        FunctionType::ExternalFunction(extfnc) => unsafe {
+                            extfnc(args);
                         },
-                        _ => {
-                            // do later
-                            panic!();
+                        FunctionType::InternalFunction(func) => {
+                            let mut passedargs = pointer.variables.clone();
+                            for (i, argname) in func.args.iter().enumerate() {
+                                passedargs.insert(argname.clone(), RefCell::new(args[i].clone()));
+                            }
+                            let nsc = func.source.to_scope(ScopeType::Function, passedargs);
+                            stack.push(nsc);
+                            continue 'stack;
                         }
                     }
+
+                    // evaluate_expression(cal);
                 }
-                _ => (),
-            };
+                Fragment::Assignment { name, value } => match pointer.variables.get_mut(name) {
+                    Some(rc) => {
+                        *rc.borrow_mut() = evaluate_expression(value);
+                        // this feels very wrong
+                        // buuuut it compiles
+                    }
+                    None => {
+                        pointer
+                            .variables
+                            .insert(name.clone(), RefCell::new(evaluate_expression(value)));
+                    }
+                },
+                Fragment::Block(block) => {
+                    let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
+                    stack.push(scope);
+                    continue 'stack;
+                }
+                _ => {}
+            }
 
-            stack.pop();
-            // pop stack
+            continue 'stack;
         }
+        // match fragment {
+        //     // Fragment::Break=>{
+        //     //     match  {
 
-        root.root.to_scope(HashMap::new()).execute(&functions);
+        //     //     }
+        //     // }
+        //     Fragment::If {
+        //         trueblock,
+        //         falseblock,
+        //         condition,
+        //     } => {
+        //         if evaluate_expression(&condition).to_bool() {
+        //             trueblock.to_scope(HashMap::new()).execute(&functions);
+        //         } else {
+        //             match falseblock {
+        //                 Some(b) => b.to_scope(HashMap::new()).execute(&functions),
+        //                 None => Value::Null,
+        //             };
+        //         }
+        //     }
+        //     Fragment::Assignment { name, value } => {
+        //         self.variables
+        //             .insert(name.clone(), Rc::new(evaluate_expression(value)));
+        //     }
+        //     Fragment::InvokeExpression(exp) => {
+        //         match &exp {
+        //             ExpressionFragment::Call { name, args } => match functions.get(name) {
+        //                 Some(func) => {
+        //                     func.call(
+        //                         args.iter().map(|f| evaluate_expression(f)).collect(),
+        //                         functions,
+        //                     );
+        //                 }
+        //                 None => panic!(),
+        //             },
+        //             _ => {
+        //                 // do later
+        //                 panic!();
+        //             }
+        //         }
+        //     }
+        //     _ => (),
+        // };
+
+        stack.pop();
+        // pop stack
+
+        loop {
+            //function parsing code here
+            break;
+            // 'fncparse: {
+
+            // }
+            //
+        }
     }
+
+    // root.root.to_scope(HashMap::new()).execute(&functions);
 }
 
 impl Block {
-    pub fn to_scope(&self, args: HashMap<String, Rc<Value>>) -> Scope {
+    pub fn to_scope(&self, stype: ScopeType, args: HashMap<String, RefCell<Value>>) -> Scope {
         Scope {
             scopetype: ScopeType::Function,
             variables: args,
             structure: self.clone(),
+            idx: 0,
         }
     }
 }
-impl Scope {
-    pub unsafe fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
-        for fragment in &self.structure.children {
-            
-        }
-        Value::Null
-    }
-}
+// impl Scope {
+//     pub fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
+//         for fragment in &self.structure.children {}
+//         Value::Null
+//     }
 
 fn evaluate_expression(expression: &Vec<ExpressionFragment>) -> Value {
     evaluate_fragment(&expression[0])
@@ -162,20 +224,20 @@ pub struct RFunction<'a> {
     pub func: FunctionType<'a>,
 }
 impl RFunction<'_> {
-    pub unsafe fn call(&self, args: Vec<Value>, functions: &HashMap<String, RFunction>) -> Value {
-        match &self.func {
-            FunctionType::ExternalFunction(extfn) => {
-                return extfn(args);
-            }
-            FunctionType::InternalFunction(intfn) => {
-                let mut passedargs = HashMap::new();
-                for (i, argname) in intfn.args.iter().enumerate() {
-                    passedargs.insert(argname.clone(), Rc::new(args[i].clone()));
-                }
-                return intfn.source.to_scope(passedargs).execute(&functions);
-            }
-        }
-    }
+    // pub fn call(&self, args: Vec<Value>, functions: &HashMap<String, RFunction>) -> Value {
+    //     match &self.func {
+    //         FunctionType::ExternalFunction(extfn) => unsafe {
+    //             return extfn(args);
+    //         },
+    //         FunctionType::InternalFunction(intfn) => {
+    //             let mut passedargs = HashMap::new();
+    //             for (i, argname) in intfn.args.iter().enumerate() {
+    //                 passedargs.insert(argname.clone(), Rc::new(args[i].clone()));
+    //             }
+    //             // return intfn.source.to_scope(passedargs).execute(&functions);
+    //         }
+    //     }
+    // }
 }
 pub enum FunctionType<'a> {
     InternalFunction(parser::Function),
@@ -183,14 +245,16 @@ pub enum FunctionType<'a> {
 }
 #[derive(Debug, Clone)]
 pub struct Scope {
-    variables: HashMap<String, Rc<Value>>,
+    variables: HashMap<String, RefCell<Value>>,
     structure: Block,
+    idx: usize,
     scopetype: ScopeType,
 }
 #[derive(Debug, Clone)]
 
 enum ScopeType {
-    Root,
+    If,
+    Block,
     Function,
     Loop,
 }
@@ -208,5 +272,8 @@ impl Value {
             Self::Bool(b) => return *b,
             _ => panic!(),
         }
+    }
+    pub fn change(&mut self, val: Value) {
+        *self = val;
     }
 }
