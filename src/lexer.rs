@@ -1,3 +1,4 @@
+use crate::parser::Constant;
 #[allow(unused_variables)]
 #[allow(dead_code)]
 // #[feature(once_cell)]
@@ -23,8 +24,8 @@ lazy_static! {
         mksym("break",Symbol::Break),
         mksym("return",Symbol::Return),
         mksym("load",Symbol::Load),
-        mksym("true",Symbol::Bool(true)),
-        mksym("false",Symbol::Bool(false)),
+        mksym("true",Symbol::Constant(Constant::Bool(true))),
+        mksym("false",Symbol::Constant(Constant::Bool(false))),
         mksym("=", Symbol::Assign),
         mksym("else", Symbol::Else),
 
@@ -79,7 +80,7 @@ pub fn lex(inp: String) -> Vec<Token> {
                     }
                 }
                 tokens.push(Token {
-                    symbol: Symbol::String(sbf),
+                    symbol: Symbol::Constant(Constant::String(sbf)),
                     index: idx,
                 });
                 buf = String::default();
@@ -90,8 +91,8 @@ pub fn lex(inp: String) -> Vec<Token> {
                         tokens.push(Token {
                             symbol: match KEYWORDS.get(&*buf) {
                                 Some(sym) => sym.clone(),
-                                None => match buf.parse::<f64>() {
-                                    Ok(num) => Symbol::Number(num),
+                                None => match buf.parse::<i64>() {
+                                    Ok(num) => Symbol::Constant(Constant::Number(num)),
                                     Err(_) => Symbol::Name(buf),
                                 },
                             },
@@ -133,10 +134,8 @@ pub enum Symbol {
     ParenStart,
     ParenEnd,
     Name(String),
-    String(String),
-    Number(f64),
+    Constant(Constant),
     Op(Op),
-    Bool(bool),
     Return,
     Loop,
     Break,

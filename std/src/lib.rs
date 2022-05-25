@@ -20,7 +20,7 @@ pub extern "C" fn std_get(inp: Vec<Value>) -> Value {
         .read_line(&mut s)
         .expect("you didn't enter a string");
 
-    if let Ok(f) = s.parse::<f64>() {
+    if let Ok(f) = s.parse::<i32>() {
         Value::Number(f)
     } else if let Ok(b) = s.parse::<bool>() {
         Value::Bool(b)
@@ -33,7 +33,7 @@ pub extern "C" fn std_get(inp: Vec<Value>) -> Value {
 #[derive(Debug, Clone)]
 pub enum Value {
     String(String),
-    Number(f64),
+    Number(i32),
     Bool(bool),
     Null,
 }

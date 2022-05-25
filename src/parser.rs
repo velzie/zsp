@@ -218,18 +218,12 @@ fn parse_args(
             }
             let token = &tokens[*idx];
             match &token.symbol {
-                Symbol::String(_) | Symbol::Number(_) | Symbol::Name(_) | Symbol::Bool(_) => {
+                Symbol::Constant(_) | Symbol::Name(_) => {
                     if const_valid {
                         // if it's the first element in the array or part of an expression
                         match token.symbol.clone() {
-                            Symbol::String(s) => {
-                                exp.push(ExpressionFragment::Constant(Constant::String(s)))
-                            }
-                            Symbol::Number(n) => {
-                                exp.push(ExpressionFragment::Constant(Constant::Number(n)))
-                            }
-                            Symbol::Bool(b) => {
-                                exp.push(ExpressionFragment::Constant(Constant::Bool(b)));
+                            Symbol::Constant(c) => {
+                                exp.push(ExpressionFragment::Constant(c));
                             }
                             Symbol::Name(n) => {
                                 // make sure to check if the name is valid
@@ -443,17 +437,23 @@ fn parse_block(
                         }
                     }
                 }
-                root.children.push(Fragment::If {
-                    condition: ifargs[0].clone(),
-                    trueblock: trueblock,
-                    falseblock: falseblock,
+                root.children.push(Fragment {
+                    frag: Frag::If {
+                        condition: ifargs[0].clone(),
+                        trueblock: trueblock,
+                        falseblock: falseblock,
+                    },
+                    index: tokens[idx].index,
                 })
             }
             Symbol::Name(name) => match funsyms.get(name) {
                 Some(fnsym) => {
-                    root.children.push(Fragment::Call(parse_fncall(
-                        &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
-                    )));
+                    root.children.push(Fragment {
+                        frag: Frag::Call(parse_fncall(
+                            &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
+                        )),
+                        index: token.index,
+                    });
                 }
                 None => {
                     idx += 1;
@@ -463,12 +463,15 @@ fn parse_block(
                         Symbol::Assign => {
                             idx += 1;
                             root.variables.push(name.to_string());
-                            root.children.push(Fragment::Assignment {
-                                name: name.clone(),
-                                value: parse_args(
-                                    &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
-                                )[0]
-                                .clone(), // potentially unsafe code whatever
+                            root.children.push(Fragment {
+                                frag: Frag::Assignment {
+                                    name: name.clone(),
+                                    value: parse_args(
+                                        &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
+                                    )[0]
+                                    .clone(), // potentially unsafe code whatever
+                                },
+                                index: token.index,
                             })
                         }
                         _ => unexpected_name_exception(
@@ -483,15 +486,18 @@ fn parse_block(
                 let endidx =
                     next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
                 idx += 1;
-                root.children.push(Fragment::Block(parse_block(
-                    &tokens,
-                    &input,
-                    &funsyms,
-                    Some(&root),
-                    &args,
-                    idx,
-                    endidx,
-                )));
+                root.children.push(Fragment {
+                    frag: Frag::Block(parse_block(
+                        &tokens,
+                        &input,
+                        &funsyms,
+                        Some(&root),
+                        &args,
+                        idx,
+                        endidx,
+                    )),
+                    index: token.index,
+                });
                 idx = endidx;
             }
             Symbol::Loop => {
@@ -499,23 +505,32 @@ fn parse_block(
                 let endidx =
                     next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
                 idx += 1;
-                root.children.push(Fragment::Loop(parse_block(
-                    &tokens,
-                    &input,
-                    &funsyms,
-                    Some(&root),
-                    &args,
-                    idx,
-                    endidx,
-                )));
+                root.children.push(Fragment {
+                    frag: Frag::Loop(parse_block(
+                        &tokens,
+                        &input,
+                        &funsyms,
+                        Some(&root),
+                        &args,
+                        idx,
+                        endidx,
+                    )),
+                    index: token.index,
+                });
                 idx = endidx;
             }
-            Symbol::Break => root.children.push(Fragment::Break),
+            Symbol::Break => root.children.push(Fragment {
+                frag: Frag::Break,
+                index: token.index,
+            }),
             Symbol::Return => {
                 idx += 1;
-                root.children.push(Fragment::Return(
-                    parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0].clone(),
-                ))
+                root.children.push(Fragment {
+                    frag: Frag::Return(
+                        parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0].clone(),
+                    ),
+                    index: token.index,
+                });
             }
 
             _ => {
@@ -578,7 +593,12 @@ pub struct FunSym {
 }
 
 #[derive(Debug, Clone)]
-pub enum Fragment {
+pub struct Fragment {
+    pub frag: Frag,
+    pub index: usize,
+}
+#[derive(Debug, Clone)]
+pub enum Frag {
     If {
         condition: Vec<ExpressionFragment>,
         trueblock: Block,
@@ -615,6 +635,6 @@ pub struct Call {
 #[derive(Debug, Clone)]
 pub enum Constant {
     String(String),
-    Number(f64),
+    Number(i64),
     Bool(bool),
 }

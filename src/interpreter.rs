@@ -1,8 +1,10 @@
-use std::{
-    borrow::Borrow, cell::RefCell, collections::HashMap, f32::consts::PI, fs, ops::DerefMut, rc::Rc,
-};
+use std::{borrow::Borrow, cell::RefCell, collections::HashMap};
 
-use crate::parser::{self, Block, Constant, ExpressionFragment, Fragment, Function, Root};
+use crate::{
+    exceptions::rtexception,
+    lexer::Op,
+    parser::{self, Block, Constant, ExpressionFragment, Frag, Function, Root},
+};
 use typed_arena::Arena;
 
 // inp structure ideas:
@@ -35,7 +37,18 @@ pub fn interpret(root: Root) {
     for lib in root.libraries {
         // for root
         unsafe {
-            let libobj = heap.alloc(libloading::Library::new(lib.static_loc).unwrap()); // lazy bad unsafe garbage code
+            let libobj = heap.alloc(
+                libloading::Library::new(format!(
+                    "{}/{}",
+                    std::env::current_dir()
+                        .unwrap()
+                        .as_os_str()
+                        .to_str()
+                        .unwrap(),
+                    lib.static_loc
+                ))
+                .unwrap(),
+            ); // lazy bad unsafe garbage code
 
             for bind in lib.binds {
                 let fnc: libloading::Symbol<unsafe extern "C" fn(Vec<Value>) -> Value> =
@@ -65,7 +78,7 @@ pub fn interpret(root: Root) {
     }
 
     run_root(
-        root.root.to_scope(ScopeType::Block, HashMap::new()),
+        root.root.to_scope(ScopeType::Function, HashMap::new()),
         &functions,
     );
     // root.root.to_scope(HashMap::new()).execute(&functions);
@@ -79,96 +92,88 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
             // dbg!(&pointer);
             let frag = &pointer.structure.children[pointer.idx];
 
-            match frag {
-                Fragment::If {
+            match &frag.frag {
+                Frag::If {
                     condition,
                     trueblock,
                     falseblock,
                 } => {
                     pointer.idx += 1;
-                    if pointer.evaluate_expression(condition, functions).to_bool() {
+                    if pointer.evaluate_expression(&condition, functions).to_bool() {
                         let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
                         stack.push(tscope);
                         continue 'stack;
                     } else if let Some(fb) = falseblock {
                         let fscope = fb.to_scope(ScopeType::If, pointer.variables.clone());
-                        // dbg!(&fscope);
                         stack.push(fscope);
                         continue 'stack;
                     }
                 }
-                Fragment::Call(call) => {
-                    pointer.eval_call(call, functions);
-
-                    // evaluate_expression(cal);
+                Frag::Call(call) => {
+                    pointer.eval_call(&call, functions);
                 }
-                Fragment::Assignment { name, value } => {
+                Frag::Assignment { name, value } => {
                     if pointer.variables.contains_key(name) {
                         *pointer.variables.get_mut(name).unwrap().borrow_mut() =
-                            pointer.evaluate_fragment(&value[0], functions);
+                            pointer.evaluate_expression(&value, functions);
                         // this feels very wrong
                         // buuuut it compiles
                     } else {
                         pointer.variables.insert(
                             name.clone(),
-                            RefCell::new(pointer.evaluate_expression(value, functions)),
+                            RefCell::new(pointer.evaluate_expression(&value, functions)),
                         );
                     }
                 }
-                // Fragment::Block(block) => {
-                //     let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
-                //     stack.push(scope);
-                //     continue 'stack;
-                // }
-                _ => {}
+                Frag::Return(exp) => {
+                    return pointer.evaluate_expression(&exp, functions);
+                }
+                Frag::Break => {
+                    let idx = frag.index.clone();
+                    match stack.clone().iter().rev().position(|f| {
+                        stack.pop();
+                        match f.scopetype {
+                            ScopeType::Loop => return true,
+                            _ => return false,
+                        }
+                    }) {
+                        Some(p) => {
+                            // idx += 1;
+                        }
+                        None => rtexception(
+                            &String::from("input"),
+                            idx,
+                            "InvalidBreakException",
+                            "you can only break in a loop. this doesn't look like a loop",
+                        ),
+                    };
+                    // frag.clone();
+                    continue 'stack;
+                }
+                Frag::Loop(block) => {
+                    let scope = block.to_scope(ScopeType::Loop, pointer.variables.clone());
+
+                    pointer.idx += 1;
+                    stack.push(scope);
+                    continue 'stack;
+                }
+                Frag::Block(block) => {
+                    let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
+                    pointer.idx += 1;
+                    stack.push(scope);
+                    continue 'stack;
+                }
             }
             pointer.idx += 1;
         }
-        // match fragment {
-        //     // Fragment::Break=>{
-        //     //     match  {
-
-        //     //     }
-        //     // }
-        //     Fragment::If {
-        //         trueblock,
-        //         falseblock,
-        //         condition,
-        //     } => {
-        //         if evaluate_expression(&condition).to_bool() {
-        //             trueblock.to_scope(HashMap::new()).execute(&functions);
-        //         } else {
-        //             match falseblock {
-        //                 Some(b) => b.to_scope(HashMap::new()).execute(&functions),
-        //                 None => Value::Null,
-        //             };
-        //         }
-        //     }
-        //     Fragment::Assignment { name, value } => {
-        //         self.variables
-        //             .insert(name.clone(), Rc::new(evaluate_expression(value)));
-        //     }
-        //     Fragment::InvokeExpression(exp) => {
-        //         match &exp {
-        //             ExpressionFragment::Call { name, args } => match functions.get(name) {
-        //                 Some(func) => {
-        //                     func.call(
-        //                         args.iter().map(|f| evaluate_expression(f)).collect(),
-        //                         functions,
-        //                     );
-        //                 }
-        //                 None => panic!(),
-        //             },
-        //             _ => {
-        //                 // do later
-        //                 panic!();
-        //             }
-        //         }
-        //     }
-        //     _ => (),
-        // };
-        // dbg!("popped stack");
-        stack.pop();
+        match pointer.scopetype {
+            ScopeType::Loop => {
+                pointer.idx = 0;
+            }
+            _ => {
+                stack.pop();
+            }
+        }
         // pop stack
     }
     Value::Null
@@ -190,14 +195,58 @@ impl Scope {
         expression: &Vec<ExpressionFragment>,
         functions: &HashMap<String, RFunction>,
     ) -> Value {
-        self.evaluate_fragment(&expression[0], functions)
+        let mut vals: Vec<ExpressionVal> = expression
+            .iter()
+            .map(|f| match f {
+                ExpressionFragment::Op(op) => ExpressionVal::Op(op.clone()),
+                _ => ExpressionVal::Value(self.evaluate_fragment(f, functions)),
+            })
+            .collect();
+        let mut buffer: Value = match &vals[0] {
+            ExpressionVal::Value(v) => v.clone(),
+            _ => panic!(),
+        };
+        vals.remove(0);
+
+        let mut opr = Op::Not; //haha get it not because this never gets used because this code structure is terrible
+        for val in vals {
+            match val {
+                ExpressionVal::Op(op) => opr = op,
+                ExpressionVal::Value(v) => {
+                    buffer = match opr {
+                        Op::Not => {
+                            dbg!("this is not the correct impl, don't rlly care");
+                            Value::Bool(!v.to_bool())
+                        }
+                        Op::EqualTo => Value::Bool(buffer == v),
+                        Op::NotEqualTo => Value::Bool(buffer.to_bool() != v.to_bool()),
+                        Op::GreaterThan => Value::Bool(buffer.to_number() > v.to_number()),
+                        Op::GreaterThanOrEqualTo => {
+                            Value::Bool(buffer.to_number() >= v.to_number())
+                        }
+                        Op::LessThan => Value::Bool(buffer.to_number() < v.to_number()),
+                        Op::LessThanOrEqualTo => Value::Bool(buffer.to_number() <= v.to_number()),
+                        Op::Plus => Value::Number(buffer.to_number() + v.to_number()),
+                        Op::Minus => Value::Number(buffer.to_number() - v.to_number()),
+                        Op::Multiply => Value::Number(buffer.to_number() * v.to_number()),
+                        Op::Divide => Value::Number(buffer.to_number() / v.to_number()),
+                        Op::Power => Value::Number(buffer.to_number().pow(v.to_number() as u32)),
+                    }
+                }
+            }
+        }
+
+        // todo: implement order of operations, or at least ()
+
+        buffer
+        // self.evaluate_fragment(&expression[0], functions)
     }
     pub fn evaluate_fragment(
         &self,
-        fragment: &ExpressionFragment,
+        frag: &ExpressionFragment,
         functions: &HashMap<String, RFunction>,
     ) -> Value {
-        match fragment {
+        match frag {
             ExpressionFragment::Constant(c) => match c {
                 Constant::Bool(b) => Value::Bool(b.clone()),
                 Constant::String(s) => Value::String(s.clone()),
@@ -205,8 +254,7 @@ impl Scope {
             },
             ExpressionFragment::Call(call) => self.eval_call(call, &functions),
             ExpressionFragment::Name(name) => self.variables.get(name).unwrap().borrow().clone(),
-            // pass by value ^
-            _ => Value::Null,
+            _ => panic!(),
         }
     }
     pub fn eval_call(&self, call: &parser::Call, functions: &HashMap<String, RFunction>) -> Value {
@@ -238,10 +286,13 @@ impl Scope {
     }
 }
 //     pub fn execute(&mut self, functions: &HashMap<String, RFunction>) -> Value {
-//         for fragment in &self.structure.children {}
+//         for Frag in &self.structure.children {}
 //         Value::Null
 //     }
-
+enum ExpressionVal {
+    Value(Value),
+    Op(Op),
+}
 pub struct RFunction<'a> {
     pub name: String,
     pub args: Vec<String>,
@@ -276,36 +327,60 @@ pub struct Scope {
 }
 #[derive(Debug, Clone)]
 
-enum ScopeType {
+pub enum ScopeType {
     If,
     Block,
     Function,
     Loop,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum Value {
     String(String),
-    Number(f64),
+    Number(i64),
     Bool(bool),
     Null,
 }
 impl Value {
+    pub fn cast(&self, vtype: Value) -> Value {
+        match vtype {
+            Value::Bool(_) => match self {
+                Self::Bool(b) => self.clone(),
+                Self::Number(n) => Self::Bool(n > &0),
+                Self::Null => Self::Bool(false),
+                Self::String(s) => Self::Bool(s.eq("true")),
+            },
+            Value::String(_) => match self {
+                Self::String(s) => self.clone(),
+                Self::Bool(b) => Self::String(format!("{}", b)),
+                Self::Number(n) => Self::String(format!("{}", n)),
+                Self::Null => Self::String(String::default()),
+            },
+            Value::Number(_) => match self {
+                Self::Number(n) => self.clone(),
+                Self::String(s) => Self::Number(s.parse::<i64>().unwrap_or_default()),
+                Self::Bool(b) => Self::Number(if *b { 1 } else { 0 }),
+                Self::Null => Self::Number(0),
+            },
+            Value::Null => panic!("what"),
+        }
+    }
     pub fn to_bool(&self) -> bool {
-        match &self {
-            Self::Bool(b) => return *b,
-            Self::Number(n) => {
-                return n > &0.0f64;
-            }
-            Self::Null => return false,
-            Self::String(s) => {
-                return true;
-                // if let Ok(b) = s.parse::<bool>() {
-                //     return b;
-                // } else {
-                //     return false;
-                // }
-            }
+        match self.cast(Value::Bool(false)) {
+            Value::Bool(b) => b,
+            _ => panic!(),
+        }
+    }
+    pub fn to_number(&self) -> i64 {
+        match self.cast(Value::Number(0)) {
+            Value::Number(b) => b,
+            _ => panic!(),
+        }
+    }
+    pub fn to_string(&self) -> String {
+        match self.cast(Value::String(String::from("_"))) {
+            Value::String(b) => b,
+            _ => panic!(),
         }
     }
 }

@@ -1,17 +1,4 @@
 load std.zlib
 
-
-put "morb stanley?"
-anser = get
-
-if anser{
-    put "morbing stanley"
-    put "what morb level should stanley recieve"
-    level = get
-
-    put "morbing stanley:"
-    put "level:"
-    put level
-}else{
-    put "stanley is spared from being morbed"
-}
+put "v"
+put 1 + 2 / 2 * 5 

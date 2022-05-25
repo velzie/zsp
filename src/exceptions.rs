@@ -19,6 +19,14 @@ pub fn unexpected_name_exception(input: &String, idx: usize, symbol: Symbol) {
         &format!("Name {:?} is undefined ", symbol),
     )
 }
+pub fn rtexception(input: &String, idx: usize, errtype: &str, message: &str) {
+    exception(
+        input,
+        idx,
+        errtype,
+        &format!("{}RUNTIME EXCEPTION: {}", color::Fg(color::Blue), message),
+    );
+}
 pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
     let mut i = 0;
     let mut lines = 0;
