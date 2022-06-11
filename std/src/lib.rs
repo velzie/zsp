@@ -10,6 +10,7 @@ pub extern "C" fn std_put(inp: Vec<Value>) -> Value {
             Value::Null => String::from("null"),
         }
     );
+
     Value::Null
 }
 #[no_mangle]

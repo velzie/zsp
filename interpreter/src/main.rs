@@ -11,6 +11,9 @@ mod libp;
 mod parser;
 
 fn main() {
+    let a = 1;
+
+    a = 2;
     let args: Vec<String> = env::args().collect();
 
     if args.len() > 1 {

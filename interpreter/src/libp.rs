@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path;
 pub fn load_lib(libname: String) -> Library {
+    println!("libname requested is {}", libname);
+    let a = 1;
+    a = 2a;
+    // dbg!(fs::read_dir("../zsp").unwrap().collect());
     let rawfs =
         fs::read_to_string(&libname).expect(&format!("could not locate library {}", &libname));
     match json::parse(&rawfs) {

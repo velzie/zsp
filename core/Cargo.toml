@@ -1,5 +1,5 @@
 [package]
-name = "std"
+name = "core"
 version = "0.1.0"
 edition = "2021"
 workspace = "../"
@@ -8,4 +8,3 @@ workspace = "../"
 
 [dependencies]
 [lib]
-crate-type = ["cdylib"]
