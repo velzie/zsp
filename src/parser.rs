@@ -214,6 +214,7 @@ fn parse_args(
         let mut const_valid = true;
         loop {
             if *idx >= tokens.len() {
+                dbg!("breaking here?");
                 break;
             }
             let token = &tokens[*idx];
@@ -246,7 +247,7 @@ fn parse_args(
                         const_valid = false;
                     } else {
                         if args.len() < argslen {
-                            *idx -= 2;
+                            *idx -= 1;
                             // move onto next argument
                             break;
                         } else {
@@ -274,7 +275,7 @@ fn parse_args(
                     }
                 }
                 _ => {
-                    *idx -= 2;
+                    *idx -= 1;
                     break;
                 }
             }
@@ -282,6 +283,8 @@ fn parse_args(
         if exp.len() > 0 {
             args.push(exp);
         } else {
+            // dbg!("breaking");
+            *idx -= 1;
             break;
         }
         *idx += 1;
@@ -376,6 +379,7 @@ fn parse_block(
 
     while idx < idxend {
         let mut token = &tokens[idx];
+        // dbg!(&root.children);
         match &token.symbol {
             Symbol::If => {
                 idx += 1;
@@ -418,7 +422,7 @@ fn parse_block(
                                             elseidx,
                                         ));
 
-                                        idx = elseidx + 1;
+                                        idx = elseidx;
                                     }
                                     Symbol::If => {
                                         panic!("sorry that's complicated and i'm dumb");
@@ -443,7 +447,7 @@ fn parse_block(
                         trueblock: trueblock,
                         falseblock: falseblock,
                     },
-                    index: tokens[idx].index,
+                    index: tokens[idx - 1].index,
                 })
             }
             Symbol::Name(name) => match funsyms.get(name) {
@@ -458,21 +462,28 @@ fn parse_block(
                 None => {
                     idx += 1;
                     token = &tokens[idx];
-
+                    // dbg!(&args);
                     match &token.symbol {
                         Symbol::Assign => {
                             idx += 1;
+                            // dbg!(
+                            //     &parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)
+                            //         [0]
+                            // );
+                            let v =
+                                parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0]
+                                    .clone();
                             root.variables.push(name.to_string());
                             root.children.push(Fragment {
                                 frag: Frag::Assignment {
                                     name: name.clone(),
-                                    value: parse_args(
-                                        &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
-                                    )[0]
-                                    .clone(), // potentially unsafe code whatever
+                                    value: v, // potentially unsafe code whatever
                                 },
                                 index: token.index,
-                            })
+                            });
+                            idx -= 1;
+                            // dbg!(&tokens[idx]);
+                            // idx += 2;
                         }
                         _ => unexpected_name_exception(
                             &input,
