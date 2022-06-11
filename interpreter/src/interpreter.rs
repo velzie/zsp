@@ -98,12 +98,13 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
                     trueblock,
                     falseblock,
                 } => {
-                    pointer.idx += 1;
+                    // pointer.idx += 1;
                     if pointer.evaluate_expression(&condition, functions).to_bool() {
                         let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
                         stack.push(tscope);
                         continue 'stack;
                     } else if let Some(fb) = falseblock {
+                        pointer.idx += 1;
                         let fscope = fb.to_scope(ScopeType::If, pointer.variables.clone());
                         stack.push(fscope);
                         continue 'stack;
@@ -219,7 +220,7 @@ impl Scope {
                             Value::Bool(!v.to_bool())
                         }
                         Op::EqualTo => Value::Bool(buffer == v),
-                        Op::NotEqualTo => Value::Bool(buffer.to_bool() != v.to_bool()),
+                        Op::NotEqualTo => Value::Bool(buffer.to_number() != v.to_number()),
                         Op::GreaterThan => Value::Bool(buffer.to_number() > v.to_number()),
                         Op::GreaterThanOrEqualTo => {
                             Value::Bool(buffer.to_number() >= v.to_number())
@@ -297,22 +298,6 @@ pub struct RFunction<'a> {
     pub name: String,
     pub args: Vec<String>,
     pub func: FunctionType<'a>,
-}
-impl RFunction<'_> {
-    // pub fn call(&self, args: Vec<Value>, functions: &HashMap<String, RFunction>) -> Value {
-    //     match &self.func {
-    //         FunctionType::ExternalFunction(extfn) => unsafe {
-    //             return extfn(args);
-    //         },
-    //         FunctionType::InternalFunction(intfn) => {
-    //             let mut passedargs = HashMap::new();
-    //             for (i, argname) in intfn.args.iter().enumerate() {
-    //                 passedargs.insert(argname.clone(), Rc::new(args[i].clone()));
-    //             }
-    //             // return intfn.source.to_scope(passedargs).execute(&functions);
-    //         }
-    //     }
-    // }
 }
 pub enum FunctionType<'a> {
     InternalFunction(parser::Function),
