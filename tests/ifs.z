@@ -1,0 +1,10 @@
+if true{
+    put "true executed"
+}else{
+    panic
+}
+if false{
+    panic
+}else{
+    put "false executed"
+}

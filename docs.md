@@ -31,11 +31,17 @@ ifs and stuff go like:
 
 if condition{
 	//executed code
-}{
+}else {
 	// else code executes here
 }
 
+for loops:
 
+for (variable name) (initial) (incrementor) (condition)
+
+for x 0 x > 10 1{
+	put x
+} 
 x = 7
 
 print "hello world"|"hi"

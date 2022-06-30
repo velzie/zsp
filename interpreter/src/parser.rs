@@ -1,5 +1,6 @@
 //TODO : replace the clones with borrows and replace the strings with &strs
 
+use crate::builtins;
 use crate::lexer::Op;
 use crate::lexer::Symbol;
 use crate::lexer::Token;
@@ -30,6 +31,16 @@ pub fn parse(tkns: Vec<Token>, input: String) -> Root {
                 },
             );
         }
+    }
+    for builtin in builtins::functions() {
+        funsyms.insert(
+            builtin.0.clone(),
+            FunSym {
+                name: builtin.0,
+                source: None,
+                args: builtin.1.args,
+            },
+        );
     }
     make_funsyms(&mut tokens, &input, &mut funsyms);
 
@@ -201,20 +212,19 @@ fn parse_args(
     exargs: &Vec<String>,
     argslen: usize,
     idx: &mut usize,
-) -> Vec<Vec<ExpressionFragment>> {
+) -> Vec<Expression> {
     let start = idx.clone();
-    let mut args: Vec<Vec<ExpressionFragment>> = vec![];
+    let mut args: Vec<Expression> = vec![];
     // fix this its brokeen
     // keep running this code until every required argument has been captured
     while args.len() < argslen {
-        let mut exp: Vec<ExpressionFragment> = vec![];
+        let mut exp: Expression = vec![];
 
         // the buffer for the current argument
 
         let mut const_valid = true;
         loop {
             if *idx >= tokens.len() {
-                dbg!("breaking here?");
                 break;
             }
             let token = &tokens[*idx];
@@ -228,7 +238,7 @@ fn parse_args(
                             }
                             Symbol::Name(n) => {
                                 // make sure to check if the name is valid
-                                if scope.variables.contains(&n) {
+                                if scope.variables.contains(&n) || exargs.contains(&n) {
                                     exp.push(ExpressionFragment::Name(n));
                                 } else if funsyms.contains_key(&n) {
                                     let fnsym = funsyms.get(&n).unwrap();
@@ -273,6 +283,20 @@ fn parse_args(
                             token.symbol.clone(),
                         )
                     }
+                }
+                Symbol::ParenStart => {
+                    *idx += 1;
+                    let endidx = next_symbol_block(
+                        &tokens,
+                        &input,
+                        *idx,
+                        Symbol::ParenStart,
+                        Symbol::ParenEnd,
+                    );
+                    exp.push(ExpressionFragment::Expression(
+                        parse_args(&tokens, &input, &funsyms, &scope, &exargs, 1, idx)[0].clone(),
+                    ));
+                    *idx = endidx + 1;
                 }
                 _ => {
                     *idx -= 1;
@@ -385,9 +409,7 @@ fn parse_block(
                 idx += 1;
                 // panic!("replace this with a next_symbol_block");
                 let ifargs = parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx);
-
-                idx += 2;
-
+                idx += 1;
                 let ifendidx =
                     next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
 
@@ -543,6 +565,55 @@ fn parse_block(
                     index: token.index,
                 });
             }
+            Symbol::For => {
+                idx += 1;
+                let name = match &tokens[idx].symbol {
+                    Symbol::Name(n) => n.clone(),
+                    _ => panic!(),
+                };
+                dbg!(&name);
+                idx += 1;
+                let mut innerargs = args.clone();
+                innerargs.push(name.clone());
+                let forargs = parse_args(&tokens, &input, &funsyms, &root, &innerargs, 2, &mut idx);
+                //parse block here
+                let startidx = next_symbol(&tokens, &input, idx, Symbol::BlockStart);
+
+                let incrementorblock = parse_block(
+                    &tokens,
+                    &input,
+                    &funsyms,
+                    Some(&root),
+                    &innerargs,
+                    idx,
+                    startidx,
+                );
+                idx = startidx + 1;
+                let endidx =
+                    next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
+
+                let block = parse_block(
+                    &tokens,
+                    &input,
+                    &funsyms,
+                    Some(&root),
+                    &innerargs,
+                    idx,
+                    endidx,
+                );
+                idx = endidx + 1;
+
+                root.children.push(Fragment {
+                    frag: Frag::For {
+                        name: name,
+                        initial: forargs[0].clone(),
+                        condition: forargs[1].clone(),
+                        incrementor: incrementorblock,
+                        block,
+                    },
+                    index: tokens[idx - 1].index,
+                });
+            }
 
             _ => {
                 unexpected_symbol_exception(&input, token.index, root.clone(), token.symbol.clone())
@@ -576,8 +647,9 @@ fn parse_fncall(
     } else {
         vec![]
     };
-
-    // this is the one of the worst ternary implementations i've ever seen but ok
+    if fnsym.args.len() > 0 {
+        *idx -= 1;
+    }
     return Call {
         name: fnsym.name.clone(),
         args: fnargs,
@@ -611,9 +683,16 @@ pub struct Fragment {
 #[derive(Debug, Clone)]
 pub enum Frag {
     If {
-        condition: Vec<ExpressionFragment>,
+        condition: Expression,
         trueblock: Block,
         falseblock: Option<Block>,
+    },
+    For {
+        name: String,
+        initial: Expression,
+        condition: Expression,
+        incrementor: Block,
+        block: Block,
     },
     Call(Call),
     Block(Block),
@@ -621,9 +700,9 @@ pub enum Frag {
     Break,
     Assignment {
         name: String,
-        value: Vec<ExpressionFragment>,
+        value: Expression,
     },
-    Return(Vec<ExpressionFragment>),
+    Return(Expression),
 }
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -637,11 +716,12 @@ pub enum ExpressionFragment {
     Op(Op),
     Constant(Constant),
     Call(Call),
+    Expression(Expression),
 }
 #[derive(Debug, Clone)]
 pub struct Call {
     pub name: String,
-    pub args: Vec<Vec<ExpressionFragment>>,
+    pub args: Vec<Expression>,
 }
 #[derive(Debug, Clone)]
 pub enum Constant {
@@ -649,3 +729,5 @@ pub enum Constant {
     Number(i64),
     Bool(bool),
 }
+
+type Expression = Vec<ExpressionFragment>;

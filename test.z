@@ -1,32 +1,3 @@
-load std.zlib
-
-modulo num mod{
- b = num / mod
- b = mod * b
- return num - b
-}
-
-index = 0
-
-loop{
-    index = index + 1
-    put index
-    put index 
-    put index
-    iop = 1
-    iop = modulo index 3
-    //iop = 1
-   // if iop == 0{
-     //   put "Fizz"
-    //}
-    //put iop
-
-    //if modulo index 5 == 0{
-    //    put "Buzz"
-    //}
-    //if modulo index 5 == 0{
-    //    if modulo index 3 == 0{
-    //        put "FizzBuzz"
-    //    }
-    //}
+for x 0 x < 100 x = x + 1 {
+    put x
 }

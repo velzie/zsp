@@ -1,7 +1,7 @@
 use crate::lexer::Symbol;
 use crate::parser::Block;
+use colored::Colorize;
 use std::io;
-use termion::{clear, color, style};
 
 pub fn unexpected_symbol_exception(input: &String, idx: usize, context: Block, symbol: Symbol) {
     exception(
@@ -24,7 +24,7 @@ pub fn rtexception(input: &String, idx: usize, errtype: &str, message: &str) {
         input,
         idx,
         errtype,
-        &format!("{}RUNTIME EXCEPTION: {}", color::Fg(color::Blue), message),
+        &format!("{}RUNTIME EXCEPTION: {}", "", message), //color::Fg(color::Blue)
     );
 }
 pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
@@ -40,31 +40,25 @@ pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
         i += 1;
     }
     let allines: Vec<&str> = input.split('\n').collect();
+
+    println!("{}", "-".repeat(offset + 9 + errtype.len()).red());
     println!(
-        "\n{}      {}\"{}\"{}{}     at line {}, col {}",
-        color::Fg(color::Red),
-        color::Bg(color::Black),
-        allines[lines],
-        color::Bg(color::Reset),
-        color::Fg(color::Blue),
-        lines,
-        offset
+        "      \"{}\"     {}",
+        allines[lines].truecolor(255, 255, 255),
+        format!(
+            "at line {}, col {}",
+            lines.to_string().truecolor(255, 255, 255),
+            offset.to_string().truecolor(255, 255, 255)
+        )
     );
     println!(
-        "{}{}ERROR:{}{}{}{}^       {}",
-        color::Bg(color::Cyan),
-        style::Bold,
-        color::Fg(color::Reset),
-        color::Bg(color::Reset),
-        style::Reset,
+        "      {}{}      {}\n{} {}",
         " ".repeat(offset - 1),
-        errtype
+        "^".bright_red(),
+        errtype.purple().bold(),
+        "ERROR:".red().bold(),
+        message.bright_purple().bold()
     );
-    println!(
-        "\n{}{}          {}\n",
-        color::Fg(color::Green),
-        style::Bold,
-        message
-    );
+    println!("{}", "-".repeat(offset + 9 + errtype.len()).red());
     panic!();
 }

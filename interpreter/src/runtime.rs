@@ -1,10 +1,12 @@
-use std::{borrow::Borrow, cell::RefCell, collections::HashMap};
+use std::{borrow::Borrow, cell::RefCell, collections::HashMap, fs, path::Path};
 
 use crate::{
+    builtins,
     exceptions::rtexception,
-    lexer::Op,
-    parser::{self, Block, Constant, ExpressionFragment, Frag, Function, Root},
+    lexer::{self, Op},
+    parser::{self, Block, Constant, ExpressionFragment, Frag, Fragment, Function, Root},
 };
+use std::rc::Rc;
 use typed_arena::Arena;
 
 // inp structure ideas:
@@ -21,13 +23,26 @@ use typed_arena::Arena;
 //3. pointers
 
 // run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
+pub fn run(path: &Path) {
+    let contents = fs::read_to_string(path)
+        .expect("could not read file")
+        .chars()
+        .filter(|c| c != &'\r')
+        .collect::<String>();
+
+    let tokens = lexer::lex(contents.clone());
+    // println!("{:?}", tokens);
+    let parsed = parser::parse(tokens, contents.clone());
+    println!("{:?}", parsed);
+    interpret(parsed);
+}
 
 pub fn interpret(root: Root) {
     // dbg!(root);
     // root.root.Run();
     // insert environemnt variables
 
-    let mut functions = HashMap::new();
+    let mut functions = builtins::functions();
 
     // load dlls
 
@@ -93,13 +108,37 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
             let frag = &pointer.structure.children[pointer.idx];
 
             match &frag.frag {
+                Frag::For {
+                    name,
+                    initial,
+                    condition,
+                    incrementor,
+                    block,
+                } => {
+                    let mut scope = block.to_scope(
+                        ScopeType::For {
+                            condition: condition.clone(),
+                            incrementor: incrementor.clone(),
+                        },
+                        pointer.variables.clone(),
+                    );
+                    scope.variables.insert(
+                        name.clone(),
+                        Rc::new(RefCell::new(
+                            pointer.evaluate_expression(initial, &functions),
+                        )),
+                    );
+                    pointer.idx += 1;
+                    stack.push(scope);
+                    continue 'stack;
+                }
                 Frag::If {
                     condition,
                     trueblock,
                     falseblock,
                 } => {
-                    // pointer.idx += 1;
                     if pointer.evaluate_expression(&condition, functions).to_bool() {
+                        pointer.idx += 1;
                         let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
                         stack.push(tscope);
                         continue 'stack;
@@ -122,7 +161,7 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
                     } else {
                         pointer.variables.insert(
                             name.clone(),
-                            RefCell::new(pointer.evaluate_expression(&value, functions)),
+                            Rc::new(RefCell::new(pointer.evaluate_expression(&value, functions))),
                         );
                     }
                 }
@@ -167,9 +206,24 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
             }
             pointer.idx += 1;
         }
-        match pointer.scopetype {
+        match &pointer.scopetype {
             ScopeType::Loop => {
                 pointer.idx = 0;
+            }
+            ScopeType::For {
+                condition,
+                incrementor,
+            } => {
+                run_root(
+                    incrementor.to_scope(ScopeType::Block, pointer.variables.clone()),
+                    functions,
+                );
+                // *pointer.variables.clone().get_mut("x").unwrap().borrow_mut() = Value::Number(1234);
+                if !pointer.evaluate_expression(condition, &functions).to_bool() {
+                    stack.pop();
+                } else {
+                    pointer.idx = 0;
+                }
             }
             _ => {
                 stack.pop();
@@ -181,7 +235,7 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
 }
 
 impl Block {
-    pub fn to_scope(&self, stype: ScopeType, args: HashMap<String, RefCell<Value>>) -> Scope {
+    pub fn to_scope(&self, stype: ScopeType, args: HashMap<String, Rc<RefCell<Value>>>) -> Scope {
         Scope {
             scopetype: stype,
             variables: args,
@@ -219,6 +273,10 @@ impl Scope {
                             dbg!("this is not the correct impl, don't rlly care");
                             Value::Bool(!v.to_bool())
                         }
+
+                        Op::Or => Value::Bool(buffer.to_bool() || v.to_bool()),
+                        Op::And => Value::Bool(buffer.to_bool() && v.to_bool()),
+
                         Op::EqualTo => Value::Bool(buffer == v),
                         Op::NotEqualTo => Value::Bool(buffer.to_number() != v.to_number()),
                         Op::GreaterThan => Value::Bool(buffer.to_number() > v.to_number()),
@@ -254,7 +312,10 @@ impl Scope {
                 Constant::Number(n) => Value::Number(n.clone()),
             },
             ExpressionFragment::Call(call) => self.eval_call(call, &functions),
-            ExpressionFragment::Name(name) => self.variables.get(name).unwrap().borrow().clone(),
+            ExpressionFragment::Name(name) => {
+                self.variables.get(name).unwrap().borrow_mut().clone()
+            }
+            ExpressionFragment::Expression(expr) => self.evaluate_expression(expr, &functions),
             _ => panic!(),
         }
     }
@@ -278,11 +339,12 @@ impl Scope {
             FunctionType::InternalFunction(func) => {
                 let mut passedargs = self.variables.clone();
                 for (i, argname) in func.args.iter().enumerate() {
-                    passedargs.insert(argname.clone(), RefCell::new(args[i].clone()));
+                    passedargs.insert(argname.clone(), Rc::new(RefCell::new(args[i].clone())));
                 }
                 let nsc = func.source.to_scope(ScopeType::Function, passedargs);
                 run_root(nsc, functions)
             }
+            FunctionType::BuiltinFunction(func) => func(args),
         }
     }
 }
@@ -301,11 +363,12 @@ pub struct RFunction<'a> {
 }
 pub enum FunctionType<'a> {
     InternalFunction(parser::Function),
+    BuiltinFunction(fn(Vec<Value>) -> Value),
     ExternalFunction(libloading::Symbol<'a, unsafe extern "C" fn(Vec<Value>) -> Value>), // whattttt
 }
 #[derive(Debug, Clone)]
 pub struct Scope {
-    variables: HashMap<String, RefCell<Value>>,
+    variables: HashMap<String, Rc<RefCell<Value>>>,
     structure: Block,
     idx: usize,
     scopetype: ScopeType,
@@ -317,6 +380,10 @@ pub enum ScopeType {
     Block,
     Function,
     Loop,
+    For {
+        condition: Vec<ExpressionFragment>,
+        incrementor: Block,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -330,19 +397,19 @@ impl Value {
     pub fn cast(&self, vtype: Value) -> Value {
         match vtype {
             Value::Bool(_) => match self {
-                Self::Bool(b) => self.clone(),
+                Self::Bool(_) => self.clone(),
                 Self::Number(n) => Self::Bool(n > &0),
                 Self::Null => Self::Bool(false),
                 Self::String(s) => Self::Bool(s.eq("true")),
             },
             Value::String(_) => match self {
-                Self::String(s) => self.clone(),
+                Self::String(_) => self.clone(),
                 Self::Bool(b) => Self::String(format!("{}", b)),
                 Self::Number(n) => Self::String(format!("{}", n)),
                 Self::Null => Self::String(String::default()),
             },
             Value::Number(_) => match self {
-                Self::Number(n) => self.clone(),
+                Self::Number(_) => self.clone(),
                 Self::String(s) => Self::Number(s.parse::<i64>().unwrap_or_default()),
                 Self::Bool(b) => Self::Number(if *b { 1 } else { 0 }),
                 Self::Null => Self::Number(0),

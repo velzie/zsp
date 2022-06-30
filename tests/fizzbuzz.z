@@ -1,0 +1,37 @@
+mod a b{
+    r = a
+    loop{
+        r = r - b
+        if r < b{
+            return r
+        }
+    }
+}
+counter = 1
+loop{
+    v = mod counter 3
+    by3 = v == 0
+    v = mod counter 5
+    by5 = v == 0
+    
+    notby5 = by5 == false
+    notby3 = by3 == false
+
+    if by3 && by5 {
+        put "FizzBuzz"
+    }else{
+        if by3 && notby5{
+            put "Fizz"
+        }
+        if by5 && notby3{
+            put "Buzz"
+        }
+        if notby5 && notby3{
+            put counter
+        }
+    }
+    counter = counter + 1
+    if counter > 100 {
+        break
+    }
+}

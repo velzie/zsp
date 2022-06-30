@@ -1,20 +1,21 @@
 [package]
-name = "zsp"
+name = "zsp-interpreter"
 version = "0.1.0"
 edition = "2021"
 workspace = "../"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 lazy_static = "1.4.0"
 substring = "1.4.5"
-termion = "*"
 json="*"
+termcolor = "*"
 libloading="*"
 typed-arena="*"
-
+zsp-macros = {path="../macros"}
+serde = "*"
+serde_json = "*"
+colored = "*" 
 [[bin]]
 name = "zsp"
 path = "src/main.rs"
-

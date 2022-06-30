@@ -6,6 +6,11 @@ use crate::parser::Constant;
 use crate::parser::ExpressionFragment;
 use std::collections::HashMap;
 
+macro_rules! mk {
+    ($st:expr,$sym:expr) => {
+        ($st.to_string(), $sym)
+    };
+}
 lazy_static! {
     static ref INTERRUPTS: HashMap<char, Option<Symbol>> = HashMap::from([
         ('\n', None),
@@ -17,34 +22,36 @@ lazy_static! {
         ('{', Some(Symbol::BlockStart)),
         ('}', Some(Symbol::BlockEnd)),
         // ('.', Symbol::If),
+        ('!', Some(Symbol::Op(Op::Not))),
+
+        ('+', Some(Symbol::Op(Op::Plus))),
+        ('-', Some(Symbol::Op(Op::Minus))),
+        ('*', Some(Symbol::Op(Op::Multiply))),
+        ('/', Some(Symbol::Op(Op::Divide))),
+        ('^', Some(Symbol::Op(Op::Power))),
     ]);
     static ref KEYWORDS: HashMap<String, Symbol> = HashMap::from([
-        mksym("if", Symbol::If),
-        mksym("loop",Symbol::Loop),
-        mksym("break",Symbol::Break),
-        mksym("return",Symbol::Return),
-        mksym("load",Symbol::Load),
-        mksym("true",Symbol::Constant(Constant::Bool(true))),
-        mksym("false",Symbol::Constant(Constant::Bool(false))),
-        mksym("=", Symbol::Assign),
-        mksym("else", Symbol::Else),
+        mk!("if", Symbol::If),
+        mk!("loop",Symbol::Loop),
+        mk!("break",Symbol::Break),
+        mk!("return",Symbol::Return),
+        mk!("for",Symbol::For),
+        mk!("load",Symbol::Load),
+        mk!("true",Symbol::Constant(Constant::Bool(true))),
+        mk!("false",Symbol::Constant(Constant::Bool(false))),
+        mk!("=", Symbol::Assign),
+        mk!("else", Symbol::Else),
 
-        mksym("<", Symbol::Op(Op::LessThan)),
-        mksym("<=", Symbol::Op(Op::LessThanOrEqualTo)),
-        mksym(">", Symbol::Op(Op::GreaterThan)),
-        mksym(">=", Symbol::Op(Op::GreaterThanOrEqualTo)),
-        mksym("==", Symbol::Op(Op::EqualTo)),
-        mksym("!=", Symbol::Op(Op::NotEqualTo)),
-        mksym("!", Symbol::Op(Op::Not)),
-
-        mksym("+", Symbol::Op(Op::Plus)),
-        mksym("-", Symbol::Op(Op::Minus)),
-        mksym("*", Symbol::Op(Op::Multiply)),
-        mksym("/", Symbol::Op(Op::Divide)),
-        mksym("^", Symbol::Op(Op::Power)),
+        mk!("<", Symbol::Op(Op::LessThan)),
+        mk!("<=", Symbol::Op(Op::LessThanOrEqualTo)),
+        mk!(">", Symbol::Op(Op::GreaterThan)),
+        mk!(">=", Symbol::Op(Op::GreaterThanOrEqualTo)),
+        mk!("==", Symbol::Op(Op::EqualTo)),
+        mk!("!=", Symbol::Op(Op::NotEqualTo)),
+        mk!("&&", Symbol::Op(Op::And)),
+        mk!("||", Symbol::Op(Op::Or)),
     ]);
 }
-// honestly if you asked me to explain what was going on here i couldn't really tell you. at least it works.
 pub fn lex(inp: String) -> Vec<Token> {
     let mut chars: Vec<char> = inp.chars().collect::<Vec<char>>();
     chars.push('\u{0017}');
@@ -117,9 +124,6 @@ pub fn lex(inp: String) -> Vec<Token> {
     tokens
 }
 
-pub fn mksym(st: &str, sym: Symbol) -> (String, Symbol) {
-    (st.to_string(), sym)
-}
 #[derive(Debug, Clone)]
 pub struct Token {
     pub symbol: Symbol,
@@ -141,6 +145,7 @@ pub enum Symbol {
     Break,
     Else,
     Load,
+    For,
 }
 #[derive(Debug, Clone)]
 pub enum Op {
@@ -156,4 +161,6 @@ pub enum Op {
     EqualTo,
     NotEqualTo,
     Not,
+    And,
+    Or,
 }
