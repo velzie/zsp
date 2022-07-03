@@ -668,7 +668,6 @@ fn parse_block(
                     Symbol::Name(n) => n.clone(),
                     _ => panic!(),
                 };
-                dbg!(&name);
                 idx += 1;
                 let mut innerargs = args.clone();
                 innerargs.push(name.clone());
