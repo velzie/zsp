@@ -21,14 +21,17 @@ lazy_static! {
         (')', Some(Symbol::ParenEnd)),
         ('{', Some(Symbol::BlockStart)),
         ('}', Some(Symbol::BlockEnd)),
-        // ('.', Symbol::If),
         ('!', Some(Symbol::Op(Op::Not))),
 
         ('+', Some(Symbol::Op(Op::Plus))),
         ('-', Some(Symbol::Op(Op::Minus))),
         ('*', Some(Symbol::Op(Op::Multiply))),
-        ('/', Some(Symbol::Op(Op::Divide))),
         ('^', Some(Symbol::Op(Op::Power))),
+        ('[', Some(Symbol::IndexStart)),
+        (']', Some(Symbol::IndexEnd)),
+        (':', Some(Symbol::IndexObject)),
+        // ('<', Some(Symbol::LambdaStart)),
+        // ('>', Some(Symbol::LambdaEnd)),
     ]);
     static ref KEYWORDS: HashMap<String, Symbol> = HashMap::from([
         mk!("if", Symbol::If),
@@ -50,6 +53,9 @@ lazy_static! {
         mk!("!=", Symbol::Op(Op::NotEqualTo)),
         mk!("&&", Symbol::Op(Op::And)),
         mk!("||", Symbol::Op(Op::Or)),
+
+        mk!("/", Symbol::Op(Op::Divide)),
+
     ]);
 }
 pub fn lex(inp: String) -> Vec<Token> {
@@ -146,8 +152,11 @@ pub enum Symbol {
     Else,
     Load,
     For,
+    IndexStart,
+    IndexEnd,
+    IndexObject,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     Plus,
     Minus,

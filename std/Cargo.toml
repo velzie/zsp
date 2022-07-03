@@ -7,7 +7,7 @@ workspace = "../"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zsp-interpreter = {path = "../interpreter"}
+zsp-core = {path = "../core"}
 serde = "*"
 serde_json = "*"
 

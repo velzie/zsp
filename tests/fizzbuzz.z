@@ -7,31 +7,21 @@ mod a b{
         }
     }
 }
-counter = 1
-loop{
-    v = mod counter 3
-    by3 = v == 0
-    v = mod counter 5
-    by5 = v == 0
-    
-    notby5 = by5 == false
-    notby3 = by3 == false
+for counter 0 counter < 100 counter = counter + 1{
+    by3 = (mod counter 3) == 0
+    by5 = (mod counter 5) == 0
 
     if by3 && by5 {
         put "FizzBuzz"
     }else{
-        if by3 && notby5{
+        if by3 && (by5 == false){
             put "Fizz"
         }
-        if by5 && notby3{
+        if by5 && (by3 == false){
             put "Buzz"
         }
-        if notby5 && notby3{
+        if (by5 == false) && (by3 == false){
             put counter
         }
-    }
-    counter = counter + 1
-    if counter > 100 {
-        break
     }
 }

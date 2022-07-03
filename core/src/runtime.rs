@@ -1,12 +1,16 @@
-use std::{borrow::Borrow, cell::RefCell, collections::HashMap, fs, path::Path};
+use std::{
+    borrow::Borrow, cell::RefCell, collections::HashMap, fmt::Debug, fs, path::Path, rc::Rc,
+};
 
 use crate::{
     builtins,
     exceptions::rtexception,
     lexer::{self, Op},
-    parser::{self, Block, Constant, ExpressionFragment, Frag, Fragment, Function, Root},
+    parser::{
+        self, Block, Constant, ExpressionFragment, Frag, Fragment, Function, Root, VarRef,
+        VarRefFragment, VarRefRoot,
+    },
 };
-use std::rc::Rc;
 use typed_arena::Arena;
 
 // inp structure ideas:
@@ -33,7 +37,7 @@ pub fn run(path: &Path) {
     let tokens = lexer::lex(contents.clone());
     // println!("{:?}", tokens);
     let parsed = parser::parse(tokens, contents.clone());
-    println!("{:?}", parsed);
+    // println!("{:?}", parsed);
     interpret(parsed);
 }
 
@@ -66,7 +70,7 @@ pub fn interpret(root: Root) {
             ); // lazy bad unsafe garbage code
 
             for bind in lib.binds {
-                let fnc: libloading::Symbol<unsafe extern "C" fn(Vec<Value>) -> Value> =
+                let fnc: libloading::Symbol<fn(Vec<Value>) -> Value> =
                     libobj.get(bind.1.bound_symbol.as_bytes()).unwrap();
                 functions.insert(
                     bind.0.clone(),
@@ -98,11 +102,23 @@ pub fn interpret(root: Root) {
     );
     // root.root.to_scope(HashMap::new()).execute(&functions);
 }
-fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
+fn run_root<'a>(root: Scope<'a>, functions: &HashMap<String, RFunction>) -> Value<'a> {
     let mut stack: Vec<Scope> = vec![];
     stack.push(root);
     'stack: while stack.len() > 0 {
         let mut pointer = stack.last_mut().unwrap();
+        match &pointer.scopetype {
+            ScopeType::For {
+                condition,
+                incrementor,
+            } => {
+                if !pointer.evaluate_expression(condition, &functions).to_bool() {
+                    stack.pop();
+                    continue 'stack;
+                }
+            }
+            _ => (),
+        }
         while pointer.idx < pointer.structure.children.len() {
             // dbg!(&pointer);
             let frag = &pointer.structure.children[pointer.idx];
@@ -150,20 +166,19 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
                     }
                 }
                 Frag::Call(call) => {
-                    pointer.eval_call(&call, functions);
+                    // note: this will evaluate the call. i would prefer it to be a little more explicit but that would just mean repeating code i already wrote
+                    pointer.get_varref(call.clone(), functions, false);
                 }
-                Frag::Assignment { name, value } => {
-                    if pointer.variables.contains_key(name) {
-                        *pointer.variables.get_mut(name).unwrap().borrow_mut() =
-                            pointer.evaluate_expression(&value, functions);
-                        // this feels very wrong
-                        // buuuut it compiles
-                    } else {
-                        pointer.variables.insert(
-                            name.clone(),
-                            Rc::new(RefCell::new(pointer.evaluate_expression(&value, functions))),
-                        );
-                    }
+                Frag::Assignment { variable, value } => {
+                    *pointer
+                        .get_varref(variable.clone(), functions, true)
+                        .borrow_mut() = pointer.evaluate_expression(&value, functions);
+                }
+                Frag::Initialize { variable, value } => {
+                    pointer.variables.insert(
+                        variable.clone(),
+                        Rc::new(RefCell::new(pointer.evaluate_expression(&value, functions))),
+                    );
                 }
                 Frag::Return(exp) => {
                     return pointer.evaluate_expression(&exp, functions);
@@ -218,12 +233,7 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
                     incrementor.to_scope(ScopeType::Block, pointer.variables.clone()),
                     functions,
                 );
-                // *pointer.variables.clone().get_mut("x").unwrap().borrow_mut() = Value::Number(1234);
-                if !pointer.evaluate_expression(condition, &functions).to_bool() {
-                    stack.pop();
-                } else {
-                    pointer.idx = 0;
-                }
+                pointer.idx = 0;
             }
             _ => {
                 stack.pop();
@@ -234,8 +244,12 @@ fn run_root(root: Scope, functions: &HashMap<String, RFunction>) -> Value {
     Value::Null
 }
 
-impl Block {
-    pub fn to_scope(&self, stype: ScopeType, args: HashMap<String, Rc<RefCell<Value>>>) -> Scope {
+impl<'a> Block {
+    pub fn to_scope(
+        &self,
+        stype: ScopeType,
+        args: HashMap<String, Rc<RefCell<Value<'a>>>>,
+    ) -> Scope<'a> {
         Scope {
             scopetype: stype,
             variables: args,
@@ -244,12 +258,12 @@ impl Block {
         }
     }
 }
-impl Scope {
+impl<'a> Scope<'a> {
     pub fn evaluate_expression(
         &self,
         expression: &Vec<ExpressionFragment>,
         functions: &HashMap<String, RFunction>,
-    ) -> Value {
+    ) -> Value<'a> {
         let mut vals: Vec<ExpressionVal> = expression
             .iter()
             .map(|f| match f {
@@ -304,7 +318,7 @@ impl Scope {
         &self,
         frag: &ExpressionFragment,
         functions: &HashMap<String, RFunction>,
-    ) -> Value {
+    ) -> Value<'a> {
         match frag {
             ExpressionFragment::Constant(c) => match c {
                 Constant::Bool(b) => Value::Bool(b.clone()),
@@ -312,14 +326,93 @@ impl Scope {
                 Constant::Number(n) => Value::Number(n.clone()),
             },
             ExpressionFragment::Call(call) => self.eval_call(call, &functions),
-            ExpressionFragment::Name(name) => {
-                self.variables.get(name).unwrap().borrow_mut().clone()
-            }
-            ExpressionFragment::Expression(expr) => self.evaluate_expression(expr, &functions),
+            // ExpressionFragment::Name(name) => {
+            //     self.variables.get(name).unwrap().borrow_mut().clone()
+            // }
+            ExpressionFragment::Expression(expr) => self.evaluate_expression(expr, functions),
+            ExpressionFragment::VarRef(vref) => self
+                .get_varref(vref.clone(), functions, false)
+                .borrow_mut()
+                .clone(),
             _ => panic!(),
         }
     }
-    pub fn eval_call(&self, call: &parser::Call, functions: &HashMap<String, RFunction>) -> Value {
+    pub fn get_varref(
+        &self,
+        varref: VarRef,
+        functions: &HashMap<String, RFunction>,
+        assign: bool,
+    ) -> Rc<RefCell<Value<'a>>> {
+        let mut ptr = self.get_varref_root(varref.root, functions);
+
+        for i in 0..varref.operations.len() {
+            let op = &varref.operations[i];
+            match op {
+                VarRefFragment::IndexInto(ind) => {
+                    let index = self.evaluate_expression(ind, functions).to_number() as usize;
+
+                    let ar = ptr.clone().borrow_mut().clone();
+                    match ar {
+                        Value::Array(_) => {
+                            if assign && i == varref.operations.len() - 1 {
+                                let mut mutval = ptr.borrow_mut();
+                                let arr = mutval.as_array();
+                                while index >= arr.len() {
+                                    arr.push(Rc::new(RefCell::new(Value::Null)));
+                                }
+                            }
+                            let tmp = ptr.borrow_mut().as_array()[index].clone();
+                            ptr = tmp;
+                        }
+                        _ => panic!("can only index into an array"),
+                    }
+                }
+                VarRefFragment::ObjectCall { name, args } => {
+                    let fields = ptr.borrow_mut().fields();
+
+                    match fields.get(name) {
+                        Some(v) => {
+                            let val = v.borrow_mut();
+                            match &*val {
+                                Value::Lambda(l) => match l.func {
+                                    FunctionType::BuiltinFunction(f) => {
+                                        // TODO: make it not clone, use &mut references instead
+                                        let mut args: Vec<Value> = args
+                                            .iter()
+                                            .map(|f| self.evaluate_expression(f, &functions))
+                                            .collect();
+                                        let mut nargs = vec![ptr.borrow_mut().clone()];
+                                        nargs.append(&mut args);
+                                        ptr = Rc::new(RefCell::new(f(nargs)))
+                                    }
+                                    _ => todo!(),
+                                },
+                                _ => panic!(),
+                            }
+                        }
+                        None => panic!(),
+                    }
+                }
+                _ => todo!(),
+            }
+        }
+        ptr
+    }
+    pub fn get_varref_root(
+        &self,
+        root: VarRefRoot,
+        functions: &HashMap<String, RFunction>,
+    ) -> Rc<RefCell<Value<'a>>> {
+        match root {
+            VarRefRoot::Call(c) => Rc::new(RefCell::new(self.eval_call(&c, functions))),
+            VarRefRoot::Variable(v) => self.variables.get(&v).unwrap().clone(),
+        }
+    }
+    pub fn eval_call(
+        &self,
+        call: &parser::Call,
+        functions: &HashMap<String, RFunction>,
+    ) -> Value<'a> {
         let rf = functions.get(&call.name).unwrap();
         let args: Vec<Value> = call
             .args
@@ -331,11 +424,11 @@ impl Scope {
     pub fn call_function(
         &self,
         rf: &RFunction,
-        args: Vec<Value>,
+        args: Vec<Value<'a>>,
         functions: &HashMap<String, RFunction>,
-    ) -> Value {
+    ) -> Value<'a> {
         match &rf.func {
-            FunctionType::ExternalFunction(extfnc) => unsafe { extfnc(args) },
+            FunctionType::ExternalFunction(extfnc) => extfnc(args),
             FunctionType::InternalFunction(func) => {
                 let mut passedargs = self.variables.clone();
                 for (i, argname) in func.args.iter().enumerate() {
@@ -352,23 +445,38 @@ impl Scope {
 //         for Frag in &self.structure.children {}
 //         Value::Null
 //     }
-enum ExpressionVal {
-    Value(Value),
+enum ExpressionVal<'a> {
+    Value(Value<'a>),
     Op(Op),
 }
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RFunction<'a> {
     pub name: String,
     pub args: Vec<String>,
     pub func: FunctionType<'a>,
 }
+
+#[derive(Clone)]
 pub enum FunctionType<'a> {
     InternalFunction(parser::Function),
     BuiltinFunction(fn(Vec<Value>) -> Value),
-    ExternalFunction(libloading::Symbol<'a, unsafe extern "C" fn(Vec<Value>) -> Value>), // whattttt
+    ExternalFunction(libloading::Symbol<'a, fn(Vec<Value>) -> Value>),
+}
+impl<'a> Debug for FunctionType<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<Function>")
+    }
+}
+
+impl<'a> PartialEq for FunctionType<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
 }
 #[derive(Debug, Clone)]
-pub struct Scope {
-    variables: HashMap<String, Rc<RefCell<Value>>>,
+pub struct Scope<'a> {
+    variables: HashMap<String, Rc<RefCell<Value<'a>>>>,
     structure: Block,
     idx: usize,
     scopetype: ScopeType,
@@ -385,36 +493,106 @@ pub enum ScopeType {
         incrementor: Block,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+// not deriving partialeq here because of weird dyn object stuff
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub enum Value {
+pub enum Value<'a> {
     String(String),
     Number(i64),
     Bool(bool),
+    Array(Vec<Rc<RefCell<Value<'a>>>>),
     Null,
+    Object(Object<'a>),
+    Lambda(RFunction<'a>),
+    DynObject(DynObjectContainer<'a>),
 }
-impl Value {
-    pub fn cast(&self, vtype: Value) -> Value {
+
+/// 2 categories
+/// primitives and objects
+// struct StringValue {
+//     value: String,
+//     functions:
+// }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Object<'a> {
+    pub fields: HashMap<String, Rc<RefCell<Value<'a>>>>,
+}
+#[derive(Debug, Clone)]
+pub struct DynObjectContainer<'a> {
+    pub val: Box<dyn DynObject<'a>>,
+    // pub pro
+}
+impl<'a> PartialEq for DynObjectContainer<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
+}
+
+impl<'a> Debug for Box<dyn DynObject<'a>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.debug(f)
+    }
+}
+pub trait DynObject<'a>: dyn_clone::DynClone {
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn fields(&self) -> HashMap<String, Rc<RefCell<Value<'a>>>>;
+}
+dyn_clone::clone_trait_object!(DynObject<'_>);
+impl<'a> Value<'a> {
+    pub fn fields(&self) -> HashMap<String, Rc<RefCell<Value<'a>>>> {
+        match self {
+            Value::Bool(_) => builtins::boolprototype(),
+            Value::Number(_) => builtins::numberprototype(),
+            Value::Null => HashMap::new(),
+            Value::String(_) => builtins::stringprototype(),
+            Value::Array(_) => builtins::arrayprototype(),
+            Value::Object(obj) => obj.fields.clone(),
+            Value::Lambda(_) => HashMap::new(),
+            Value::DynObject(o) => o.val.fields(),
+        }
+    }
+    pub fn cast(&self, vtype: Value<'a>) -> Value<'a> {
         match vtype {
             Value::Bool(_) => match self {
                 Self::Bool(_) => self.clone(),
                 Self::Number(n) => Self::Bool(n > &0),
                 Self::Null => Self::Bool(false),
                 Self::String(s) => Self::Bool(s.eq("true")),
+                Self::Array(_) => panic!("cannot cast array to bool"),
+                _ => panic!(),
             },
             Value::String(_) => match self {
                 Self::String(_) => self.clone(),
                 Self::Bool(b) => Self::String(format!("{}", b)),
                 Self::Number(n) => Self::String(format!("{}", n)),
                 Self::Null => Self::String(String::default()),
+                Self::Array(_) => panic!("cannot cast array to string"),
+                _ => Self::String(format!("{:?}", self)),
             },
             Value::Number(_) => match self {
                 Self::Number(_) => self.clone(),
                 Self::String(s) => Self::Number(s.parse::<i64>().unwrap_or_default()),
                 Self::Bool(b) => Self::Number(if *b { 1 } else { 0 }),
                 Self::Null => Self::Number(0),
+                Self::Array(_) => panic!("cannot cast array to number"),
+                _ => panic!(),
             },
-            Value::Null => panic!("what"),
+            Value::Null => panic!("cannot cast null"),
+            Self::Array(_) => panic!("cannot cast array"),
+            _ => panic!(),
+        }
+    }
+    pub fn as_object(&mut self) -> &mut Object<'a> {
+        match self {
+            Value::Object(v) => v,
+            _ => panic!(),
+        }
+    }
+    pub fn as_array(&mut self) -> &mut Vec<Rc<RefCell<Value<'a>>>> {
+        match self {
+            Value::Array(a) => a,
+            _ => panic!(),
         }
     }
     pub fn to_bool(&self) -> bool {

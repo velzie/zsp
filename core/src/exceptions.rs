@@ -60,5 +60,5 @@ pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
         message.bright_purple().bold()
     );
     println!("{}", "-".repeat(offset + 9 + errtype.len()).red());
-    panic!();
+    panic!()
 }

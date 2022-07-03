@@ -37,6 +37,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "140206b78fb2bc3edbcfc9b5ccbd0b30699cfe8d348b8b31b330e47df5291a5a"
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -158,10 +164,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
-name = "zsp-interpreter"
+name = "zsp-core"
 version = "0.1.0"
 dependencies = [
  "colored",
+ "dyn-clone",
  "json",
  "lazy_static",
  "libloading",
@@ -183,5 +190,5 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "zsp-interpreter",
+ "zsp-core",
 ]

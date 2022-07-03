@@ -6,8 +6,10 @@ use crate::lexer::Symbol;
 use crate::lexer::Token;
 use crate::libp;
 use crate::libp::Library;
+use core::panic;
 // use
 use std::collections::HashMap;
+use std::env::VarError;
 use std::vec;
 
 use crate::exceptions::*;
@@ -238,18 +240,11 @@ fn parse_args(
                             }
                             Symbol::Name(n) => {
                                 // make sure to check if the name is valid
-                                if scope.variables.contains(&n) || exargs.contains(&n) {
-                                    exp.push(ExpressionFragment::Name(n));
-                                } else if funsyms.contains_key(&n) {
-                                    let fnsym = funsyms.get(&n).unwrap();
-                                    exp.push(ExpressionFragment::Call(parse_fncall(
-                                        &tokens, &input, &funsyms, &scope, &exargs, &mut *idx,
-                                        &fnsym,
-                                    )));
-                                } else {
-                                    unexpected_name_exception(&input, token.index, Symbol::Name(n));
-                                    panic!();
-                                }
+                                exp.push(ExpressionFragment::VarRef(parse_name(
+                                    tokens, input, funsyms, scope, exargs, idx, &n,
+                                )));
+
+                                *idx -= 1;
                             }
                             _ => panic!(),
                         }
@@ -297,6 +292,7 @@ fn parse_args(
                         parse_args(&tokens, &input, &funsyms, &scope, &exargs, 1, idx)[0].clone(),
                     ));
                     *idx = endidx + 1;
+                    const_valid = false;
                 }
                 _ => {
                     *idx -= 1;
@@ -472,49 +468,150 @@ fn parse_block(
                     index: tokens[idx - 1].index,
                 })
             }
-            Symbol::Name(name) => match funsyms.get(name) {
-                Some(fnsym) => {
+            Symbol::Name(name) => {
+                if !root.variables.contains(name)
+                    && !args.contains(name)
+                    && !funsyms.contains_key(name)
+                    && match &tokens[idx + 1].symbol {
+                        Symbol::Assign => true,
+                        _ => false,
+                    }
+                {
+                    // initialize variable
+                    idx += 2;
+                    let v =
+                        parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0].clone();
+
+                    idx -= 1;
+                    root.variables.push(name.clone());
                     root.children.push(Fragment {
-                        frag: Frag::Call(parse_fncall(
-                            &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
-                        )),
-                        index: token.index,
-                    });
-                }
-                None => {
-                    idx += 1;
-                    token = &tokens[idx];
-                    // dbg!(&args);
-                    match &token.symbol {
-                        Symbol::Assign => {
-                            idx += 1;
-                            // dbg!(
-                            //     &parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)
-                            //         [0]
-                            // );
-                            let v =
-                                parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0]
-                                    .clone();
-                            root.variables.push(name.to_string());
-                            root.children.push(Fragment {
-                                frag: Frag::Assignment {
-                                    name: name.clone(),
-                                    value: v, // potentially unsafe code whatever
-                                },
-                                index: token.index,
-                            });
-                            idx -= 1;
-                            // dbg!(&tokens[idx]);
-                            // idx += 2;
+                        frag: Frag::Initialize {
+                            variable: name.clone(),
+                            value: v,
+                        },
+                        index: tokens[idx - 1].index,
+                    })
+                } else {
+                    let startidx = idx;
+                    let vref = parse_name(tokens, input, funsyms, &root, &args, &mut idx, name);
+
+                    if if let Some(last) = vref.operations.last() {
+                        match last {
+                            VarRefFragment::ObjectCall { name, args } => true,
+                            _ => false,
                         }
-                        _ => unexpected_name_exception(
-                            &input,
-                            tokens[idx - 1].index,
-                            tokens[idx - 1].symbol.clone(),
-                        ),
+                    } else {
+                        match &vref.root {
+                            VarRefRoot::Call(_) => true,
+                            VarRefRoot::Variable(_) => false,
+                        }
+                    } {
+                        // it's a call
+                        root.children.push(Fragment {
+                            frag: Frag::Call(vref),
+                            index: tokens[startidx].index,
+                        });
+                        idx -= 1;
+                    } else {
+                        // it's an assign
+                        match &tokens[idx].symbol {
+                            Symbol::Assign => {
+                                idx += 1;
+                                let v = parse_args(
+                                    &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
+                                )[0]
+                                .clone();
+
+                                idx -= 1;
+                                root.children.push(Fragment {
+                                    frag: Frag::Assignment {
+                                        variable: vref,
+                                        value: v,
+                                    },
+                                    index: tokens[idx - 1].index,
+                                });
+                            }
+                            _ => todo!(),
+                        }
                     }
                 }
-            },
+                // root.children.push(Fragment{
+                //     frag: Frag::
+                //     index:tokens[idx-1].index
+                // });
+                //match funsyms.get(name) {
+                // Some(fnsym) => {
+                //     root.children.push(Fragment {
+                //         frag: Frag::Call(parse_fncall(
+                //             &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
+                //         )),
+                //         index: token.index,
+                //     });
+                // }
+                // None => {
+                //     // dbg!(&tokens[idx]);
+                //     idx += 1;
+                //     token = &tokens[idx];
+                //     // dbg!(&args);
+                //     match &token.symbol {
+                //         Symbol::IndexStart => {
+                //             idx += 1;
+                //             let arg = parse_args(tokens, input, funsyms, &root, &args, 1, &mut idx)
+                //                 [0]
+                //             .clone();
+                //             idx += 1;
+                //             dbg!(&tokens[idx]);
+                //             match &tokens[idx].symbol {
+                //                 Symbol::Assign => {
+                //                     idx += 1;
+                //                     let v = parse_args(
+                //                         &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
+                //                     )[0]
+                //                     .clone();
+
+                //                     root.children.push(Fragment {
+                //                         frag: Frag::IndexAssignment {
+                //                             name: name.clone(),
+                //                             index: arg,
+                //                             value: v,
+                //                         },
+                //                         index: token.index,
+                //                     });
+
+                //                     idx -= 1;
+                //                 }
+                //                 _ => panic!("make this exception later"),
+                //             }
+                //         }
+                //         Symbol::Assign => {
+                //             idx += 1;
+                //             // dbg!(
+                //             //     &parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)
+                //             //         [0]
+                //             // );
+                //             let v =
+                //                 parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0]
+                //                     .clone();
+                //             root.variables.push(name.to_string());
+                //             root.children.push(Fragment {
+                //                 frag: Frag::Assignment {
+                //                     name: name.clone(),
+                //                     value: v, // potentially unsafe code whatever
+                //                 },
+                //                 index: token.index,
+                //             });
+                //             idx -= 1;
+                //             // dbg!(&tokens[idx]);
+                //             // idx += 2;
+                //         }
+                //         _ => unexpected_name_exception(
+                //             &input,
+                //             tokens[idx - 1].index,
+                //             tokens[idx - 1].symbol.clone(),
+                //         ),
+                //     }
+                // }
+            }
             Symbol::BlockStart => {
                 let endidx =
                     next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
@@ -613,6 +710,7 @@ fn parse_block(
                     },
                     index: tokens[idx - 1].index,
                 });
+                idx -= 1;
             }
 
             _ => {
@@ -623,6 +721,154 @@ fn parse_block(
         idx += 1;
     }
     root
+}
+
+fn parse_name(
+    tokens: &Vec<Token>,
+    input: &String,
+    funsyms: &HashMap<String, FunSym>,
+    scope: &Block,
+    exargs: &Vec<String>,
+    idx: &mut usize,
+    name: &String,
+) -> VarRef {
+    let mut fragments = vec![];
+
+    let root = if scope.variables.contains(name) || exargs.contains(name) {
+        VarRefRoot::Variable(name.clone())
+    } else if funsyms.contains_key(name) {
+        let fnsym = funsyms.get(name).unwrap();
+        VarRefRoot::Call(parse_fncall(
+            tokens, input, funsyms, scope, exargs, idx, &fnsym,
+        ))
+    } else {
+        unexpected_name_exception(&input, tokens[*idx].index, Symbol::Name(name.clone()));
+        panic!("rust moment");
+    };
+
+    *idx += 1;
+    while *idx < tokens.len() {
+        match &tokens[*idx].symbol {
+            Symbol::IndexObject => {
+                *idx += 1;
+                let funcname = match &tokens[*idx].symbol {
+                    Symbol::Name(n) => n,
+                    _ => {
+                        unexpected_symbol_exception(
+                            input,
+                            *idx,
+                            scope.clone(),
+                            tokens[*idx].symbol.clone(),
+                        );
+                        panic!("this is unreachable but the compiler doesn't know that so :/ ");
+                    }
+                };
+                *idx += 1;
+                match &tokens[*idx].symbol {
+                    Symbol::ParenStart => {
+                        *idx += 1;
+                        let endidx = match &tokens[*idx].symbol {
+                            Symbol::ParenEnd => *idx,
+                            _ => next_symbol_block(
+                                tokens,
+                                input,
+                                *idx,
+                                Symbol::ParenStart,
+                                Symbol::ParenEnd,
+                            ),
+                        };
+
+                        let mut args: Vec<Expression> = vec![];
+
+                        while *idx < endidx {
+                            args.append(&mut parse_args(
+                                tokens, input, funsyms, scope, exargs, 1, idx,
+                            ));
+                        }
+                        fragments.push(VarRefFragment::ObjectCall {
+                            name: funcname.clone(),
+                            args,
+                        });
+                    }
+                    _=>{
+                        
+                    }
+                }
+            }
+            Symbol::IndexStart => {
+                *idx += 1;
+                let arg = parse_args(tokens, input, funsyms, scope, exargs, 1, idx)[0].clone();
+                fragments.push(VarRefFragment::IndexInto(arg));
+                // *idx += 1;
+            }
+
+            _ => break,
+        }
+        *idx += 1;
+    }
+    //     Symbol::IndexStart => {
+    //         *idx += 2;
+    //         let arg = parse_args(
+    //             tokens, input, funsyms, scope, exargs, 1, idx,
+    //         )[0]
+    //         .clone();
+
+    //         exp.push(ExpressionFragment::IndexName {
+    //             name: n.clone(),
+    //             index: arg,
+    //         });
+
+    //         true
+    //     }
+    //     Symbol::IndexObject => {
+    //         *idx += 2;
+    //         let funcname = match &tokens[*idx].symbol {
+    //             Symbol::Name(n) => n,
+    //             _ => {
+    //                 unexpected_symbol_exception(
+    //                     input,
+    //                     *idx,
+    //                     scope.clone(),
+    //                     tokens[*idx].symbol.clone(),
+    //                 );
+    //                 panic!("this is unreachable but the compiler doesn't know that so :/ ");
+    //             }
+    //         };
+    //         *idx += 2;
+    //         let endidx = match &tokens[*idx].symbol {
+    //             Symbol::ParenEnd => *idx,
+    //             _ => next_symbol_block(
+    //                 tokens,
+    //                 input,
+    //                 *idx,
+    //                 Symbol::ParenStart,
+    //                 Symbol::ParenEnd,
+    //             ),
+    //         };
+
+    //         let mut args: Vec<Expression> = vec![];
+
+    //         while *idx < endidx {
+    //             args.append(&mut parse_args(
+    //                 tokens, input, funsyms, scope, exargs, 1,
+    //                 idx,
+    //             ));
+    //         }
+    //         exp.push(ExpressionFragment::ObjectCall {
+    //             objectname: n.clone(),
+    //             functionname: funcname.clone(),
+    //             args,
+    //         });
+    //         // also we need to have dlls to be able to add more types.
+
+    //         true
+    //     }
+    //     _ => false,
+    // }
+    VarRef {
+        root: root,
+        operations: fragments,
+    }
 }
 fn parse_fncall(
     tokens: &Vec<Token>,
@@ -663,7 +909,7 @@ pub struct Root {
     pub libraries: Vec<Library>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub children: Vec<Fragment>,
     pub variables: Vec<String>,
@@ -675,12 +921,12 @@ pub struct FunSym {
     args: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Fragment {
     pub frag: Frag,
     pub index: usize,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Frag {
     If {
         condition: Expression,
@@ -694,36 +940,70 @@ pub enum Frag {
         incrementor: Block,
         block: Block,
     },
-    Call(Call),
+    Call(VarRef),
     Block(Block),
     Loop(Block),
     Break,
+    Initialize {
+        variable: String,
+        value: Expression,
+    },
     Assignment {
-        name: String,
+        variable: VarRef,
         value: Expression,
     },
     Return(Expression),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: String,
     pub args: Vec<String>,
     pub source: Block,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionFragment {
-    Name(String), //remember that this could also be a function call :/
     Op(Op),
     Constant(Constant),
     Call(Call),
     Expression(Expression),
+    VarRef(VarRef),
+    // Name(String), //remember that this could also be a function call :/
+    // IndexName {
+    //     name: String,
+    //     index: Expression,
+    // },
+    // ObjectCall {
+    //     objectname: String,
+    //     functionname: String,
+    //     args: Vec<Expression>,
+    // },
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarRef {
+    pub root: VarRefRoot,
+    pub operations: Vec<VarRefFragment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VarRefRoot {
+    Variable(String),
+    Call(Call),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VarRefFragment {
+    IndexInto(Expression),
+    ObjectProperty(String),
+    ObjectCall { name: String, args: Vec<Expression> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     pub name: String,
     pub args: Vec<Expression>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
     String(String),
     Number(i64),

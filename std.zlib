@@ -2,30 +2,10 @@
     "name": "std",
     "static_loc": "zsp_std.dll",
     "binds": {
-        "put": {
-            "args": [
-                "input"
-            ],
-            "bound_symbol": "std_put",
+        "celeste": {
+            "args": [],
+            "bound_symbol": "celesteobj",
             "description": "prints to standard output"
-        },
-        "get": {
-            "args": [],
-            "bound_symbol": "std_get",
-            "description": "returns the standard input"
-        },
-        "panic": {
-            "args": [],
-            "bound_symbol": "std_panic",
-            "description": "halts execution"
-        },
-        "assert": {
-            "args": [
-                "val1",
-                "val2"
-            ],
-            "bound_symbol": "std_assert",
-            "description": "halts execution if the 2 values are not equal. useful for testing"
         }
     }
 }

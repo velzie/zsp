@@ -1,5 +1,5 @@
 [package]
-name = "zsp-interpreter"
+name = "zsp-core"
 version = "0.1.0"
 edition = "2021"
 workspace = "../"
@@ -15,7 +15,8 @@ typed-arena="*"
 zsp-macros = {path="../macros"}
 serde = "*"
 serde_json = "*"
-colored = "*" 
+colored = "*"
+dyn-clone="*" 
 [[bin]]
 name = "zsp"
 path = "src/main.rs"

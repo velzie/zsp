@@ -1,7 +1,7 @@
-#![feature(strict_provenance)]
 use std::env;
 use std::fs;
 use std::path::Path;
+
 #[macro_use]
 extern crate lazy_static;
 

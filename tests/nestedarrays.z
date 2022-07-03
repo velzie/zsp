@@ -1,0 +1,6 @@
+v = array
+v[0] = array
+v[0][0] = 1
+
+put v[0][0]
+put "test"

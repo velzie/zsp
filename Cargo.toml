@@ -1,2 +1,2 @@
 [workspace]
-members = ["macros","std","interpreter"]
+members = ["macros","std","core"]
