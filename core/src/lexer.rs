@@ -21,7 +21,6 @@ lazy_static! {
         (')', Some(Symbol::ParenEnd)),
         ('{', Some(Symbol::BlockStart)),
         ('}', Some(Symbol::BlockEnd)),
-        ('!', Some(Symbol::Op(Op::Not))),
 
         ('+', Some(Symbol::Op(Op::Plus))),
         ('-', Some(Symbol::Op(Op::Minus))),
@@ -53,6 +52,7 @@ lazy_static! {
         mk!("!=", Symbol::Op(Op::NotEqualTo)),
         mk!("&&", Symbol::Op(Op::And)),
         mk!("||", Symbol::Op(Op::Or)),
+        mk!('!', Symbol::Op(Op::Not)),
 
         mk!("/", Symbol::Op(Op::Divide)),
 
@@ -104,7 +104,7 @@ pub fn lex(inp: String) -> Vec<Token> {
                         tokens.push(Token {
                             symbol: match KEYWORDS.get(&*buf) {
                                 Some(sym) => sym.clone(),
-                                None => match buf.parse::<i64>() {
+                                None => match buf.parse::<f32>() {
                                     Ok(num) => Symbol::Constant(Constant::Number(num)),
                                     Err(_) => Symbol::Name(buf),
                                 },

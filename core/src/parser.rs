@@ -314,7 +314,7 @@ fn parse_args(
     if args.len() < argslen {
         exception(
             &input,
-            tokens[start].index,
+            tokens[start - 1].index,
             "ArgumentException",
             "Not enough arguments!",
         );
@@ -743,7 +743,7 @@ fn parse_name(
         ))
     } else {
         unexpected_name_exception(&input, tokens[*idx].index, Symbol::Name(name.clone()));
-        panic!("rust moment");
+        unreachable!()
     };
 
     *idx += 1;
@@ -760,38 +760,45 @@ fn parse_name(
                             scope.clone(),
                             tokens[*idx].symbol.clone(),
                         );
-                        panic!("this is unreachable but the compiler doesn't know that so :/ ");
+                        unreachable!()
                     }
                 };
                 *idx += 1;
-                match &tokens[*idx].symbol {
-                    Symbol::ParenStart => {
-                        *idx += 1;
-                        let endidx = match &tokens[*idx].symbol {
-                            Symbol::ParenEnd => *idx,
-                            _ => next_symbol_block(
-                                tokens,
-                                input,
-                                *idx,
-                                Symbol::ParenStart,
-                                Symbol::ParenEnd,
-                            ),
-                        };
+                match tokens.get(*idx) {
+                    Some(tkn) => match tkn.symbol {
+                        Symbol::ParenStart => {
+                            *idx += 1;
+                            let endidx = match &tokens[*idx].symbol {
+                                Symbol::ParenEnd => *idx,
+                                _ => next_symbol_block(
+                                    tokens,
+                                    input,
+                                    *idx,
+                                    Symbol::ParenStart,
+                                    Symbol::ParenEnd,
+                                ),
+                            };
 
-                        let mut args: Vec<Expression> = vec![];
+                            let mut args: Vec<Expression> = vec![];
 
-                        while *idx < endidx {
-                            args.append(&mut parse_args(
-                                tokens, input, funsyms, scope, exargs, 1, idx,
-                            ));
+                            while *idx < endidx {
+                                args.append(&mut parse_args(
+                                    tokens, input, funsyms, scope, exargs, 1, idx,
+                                ));
+                            }
+                            fragments.push(VarRefFragment::ObjectCall {
+                                name: funcname.clone(),
+                                args,
+                            });
                         }
-                        fragments.push(VarRefFragment::ObjectCall {
-                            name: funcname.clone(),
-                            args,
-                        });
-                    }
-                    _=>{
-                        
+                        _ => {
+                            *idx -= 1;
+                            fragments.push(VarRefFragment::ObjectProperty(funcname.clone()))
+                        }
+                    },
+                    None => {
+                        *idx -= 1;
+                        fragments.push(VarRefFragment::ObjectProperty(funcname.clone()))
                     }
                 }
             }
@@ -1006,7 +1013,7 @@ pub struct Call {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
     String(String),
-    Number(i64),
+    Number(f32),
     Bool(bool),
 }
 

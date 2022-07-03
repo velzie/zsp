@@ -35,7 +35,7 @@ pub fn run(path: &Path) {
         .collect::<String>();
 
     let tokens = lexer::lex(contents.clone());
-    // println!("{:?}", tokens);
+    println!("{:?}", tokens);
     let parsed = parser::parse(tokens, contents.clone());
     // println!("{:?}", parsed);
     interpret(parsed);
@@ -303,7 +303,7 @@ impl<'a> Scope<'a> {
                         Op::Minus => Value::Number(buffer.to_number() - v.to_number()),
                         Op::Multiply => Value::Number(buffer.to_number() * v.to_number()),
                         Op::Divide => Value::Number(buffer.to_number() / v.to_number()),
-                        Op::Power => Value::Number(buffer.to_number().pow(v.to_number() as u32)),
+                        Op::Power => Value::Number(buffer.to_number().powf(v.to_number())),
                     }
                 }
             }
@@ -393,7 +393,25 @@ impl<'a> Scope<'a> {
                         None => panic!(),
                     }
                 }
-                _ => todo!(),
+                VarRefFragment::ObjectProperty(name) => {
+                    let fields = ptr.borrow_mut().fields();
+                    match fields.get(name) {
+                        Some(v) => {
+                            ptr = v.clone();
+                        }
+                        None => {
+                            let tmp = ptr.clone();
+                            let mut ptrref = tmp.borrow_mut();
+                            if assign && ptrref.is_object() {
+                                let val = Rc::new(RefCell::new(Value::Null));
+                                ptrref.as_object().fields.insert(name.clone(), val.clone());
+                                ptr = val;
+                            } else {
+                                panic!("do later")
+                            };
+                        }
+                    }
+                }
             }
         }
         ptr
@@ -498,7 +516,7 @@ pub enum ScopeType {
 #[repr(C)]
 pub enum Value<'a> {
     String(String),
-    Number(i64),
+    Number(f32),
     Bool(bool),
     Array(Vec<Rc<RefCell<Value<'a>>>>),
     Null,
@@ -556,7 +574,7 @@ impl<'a> Value<'a> {
         match vtype {
             Value::Bool(_) => match self {
                 Self::Bool(_) => self.clone(),
-                Self::Number(n) => Self::Bool(n > &0),
+                Self::Number(n) => Self::Bool(n > &0f32),
                 Self::Null => Self::Bool(false),
                 Self::String(s) => Self::Bool(s.eq("true")),
                 Self::Array(_) => panic!("cannot cast array to bool"),
@@ -572,9 +590,9 @@ impl<'a> Value<'a> {
             },
             Value::Number(_) => match self {
                 Self::Number(_) => self.clone(),
-                Self::String(s) => Self::Number(s.parse::<i64>().unwrap_or_default()),
-                Self::Bool(b) => Self::Number(if *b { 1 } else { 0 }),
-                Self::Null => Self::Number(0),
+                Self::String(s) => Self::Number(s.parse::<f32>().unwrap_or_default()),
+                Self::Bool(b) => Self::Number(if *b { 1f32 } else { 0f32 }),
+                Self::Null => Self::Number(0f32),
                 Self::Array(_) => panic!("cannot cast array to number"),
                 _ => panic!(),
             },
@@ -583,34 +601,70 @@ impl<'a> Value<'a> {
             _ => panic!(),
         }
     }
+    pub fn is_object(&self) -> bool {
+        match self {
+            Value::Object(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_array(&self) -> bool {
+        match self {
+            Value::Array(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_bool(&self) -> bool {
+        match self {
+            Value::Bool(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_number(&self) -> bool {
+        match self {
+            Value::Number(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_string(&self) -> bool {
+        match self {
+            Value::String(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_null(&self) -> bool {
+        match self {
+            Value::Null => true,
+            _ => false,
+        }
+    }
     pub fn as_object(&mut self) -> &mut Object<'a> {
         match self {
             Value::Object(v) => v,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
     pub fn as_array(&mut self) -> &mut Vec<Rc<RefCell<Value<'a>>>> {
         match self {
             Value::Array(a) => a,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
     pub fn to_bool(&self) -> bool {
         match self.cast(Value::Bool(false)) {
             Value::Bool(b) => b,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
-    pub fn to_number(&self) -> i64 {
-        match self.cast(Value::Number(0)) {
+    pub fn to_number(&self) -> f32 {
+        match self.cast(Value::Number(0f32)) {
             Value::Number(b) => b,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
     pub fn to_string(&self) -> String {
         match self.cast(Value::String(String::from("_"))) {
             Value::String(b) => b,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
 }

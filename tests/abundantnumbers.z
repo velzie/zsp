@@ -1,0 +1,27 @@
+mod a b{
+    r = a
+    loop{
+        r = r - b
+        if r < b{
+            return r
+        }
+    }
+}
+is_whole num{
+    return (mod num 1) == 0
+}
+for a 1 a < 200 a = a + 1{
+    divisors = array
+    for d 1 d < a d = d + 1{
+        if is_whole (a / d){
+            divisors[len divisors] = d
+        }
+    }
+    total = 0
+    for i 0 i < len divisors i = i + 1{
+        total = total + divisors[i]
+    }
+    if total > a{
+        put a
+    }
+}

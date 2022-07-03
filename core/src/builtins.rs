@@ -36,11 +36,13 @@ pub fn functions<'a>() -> HashMap<String, RFunction<'a>> {
     HashMap::from([
         func!("put", zsp_put, 1),
         func!("get", zsp_get, 0),
-        func!("panic", zsp_panic, 0),
+        func!("exit", zsp_exit, 0),
         func!("assert", zsp_assert, 2),
         func!("array", zsp_array_new, 0),
         func!("object", zsp_object_new, 0),
         func!("len", zsp_array_len, 1),
+        func!("null", zsp_null_new, 0),
+        func!("panic", zsp_panic, 0),
     ])
 }
 
@@ -63,23 +65,20 @@ fn string_substr(inp: Vec<Value>) -> Value {
     Value::String(inp[0].to_string().substring(0, 1).to_string())
 }
 
-// impl Value{
-//     pub fn functions<'a>() -> HashMap<String,RFunction<'a>>{
-//         HashMap
-//     }
-// }
-
-fn zsp_array_new(args: Vec<Value>) -> Value {
+fn zsp_array_new(_args: Vec<Value>) -> Value {
     Value::Array(vec![])
 }
 
-pub fn zsp_object_new(args: Vec<Value>) -> Value {
+pub fn zsp_object_new(_args: Vec<Value>) -> Value {
     Value::Object(Object {
         fields: HashMap::new(),
     })
 }
+pub fn zsp_null_new(_args: Vec<Value>) -> Value {
+    Value::Null
+}
 fn zsp_array_len(args: Vec<Value>) -> Value {
-    Value::Number(args[0].clone().as_array().len() as i64)
+    Value::Number(args[0].clone().as_array().len() as f32)
 }
 
 fn zsp_put(args: Vec<Value>) -> Value {
@@ -87,14 +86,14 @@ fn zsp_put(args: Vec<Value>) -> Value {
     Value::Null
 }
 
-fn zsp_get(inp: Vec<Value>) -> Value {
-    stdout().flush();
+fn zsp_get(_inp: Vec<Value>) -> Value {
+    stdout().flush().unwrap();
     let mut s = String::new();
     stdin()
         .read_line(&mut s)
         .expect("you didn't enter a string");
-
-    if let Ok(f) = s.parse::<i64>() {
+    s = s.chars().filter(|c| c != &'\n' && c != &'\r').collect();
+    if let Ok(f) = s.parse::<f32>() {
         Value::Number(f)
     } else if let Ok(b) = s.parse::<bool>() {
         Value::Bool(b)
@@ -102,8 +101,12 @@ fn zsp_get(inp: Vec<Value>) -> Value {
         Value::String(s)
     }
 }
-fn zsp_panic(args: Vec<Value>) -> Value {
-    panic!("panic from code");
+fn zsp_exit(_args: Vec<Value>) -> Value {
+    dbg!("exiting");
+    std::process::exit(0);
+}
+fn zsp_panic(_args: Vec<Value>) -> Value {
+    panic!("panic from code")
 }
 fn zsp_assert(inp: Vec<Value>) -> Value {
     if inp[0] != inp[1] {
