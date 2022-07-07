@@ -4,35 +4,25 @@ use crate::builtins;
 use crate::lexer::Op;
 use crate::lexer::Symbol;
 use crate::lexer::Token;
-use crate::libp;
-use crate::libp::Library;
+use crate::runtime::RFunction;
+use crate::runtime::Value;
 use core::panic;
-// use
 use std::collections::HashMap;
-use std::env::VarError;
-use std::vec;
 
 use crate::exceptions::*;
-// -> (Block, Vec<Fragment>)
-pub fn parse(tkns: Vec<Token>, input: String) -> Root {
+pub fn parse(tkns: Vec<Token>, input: String, funcs: &HashMap<String, RFunction>) -> Root {
     let mut tokens = tkns.clone();
-    let libs: Vec<Library> = find_loads(&mut tokens, &input)
-        .iter()
-        .map(|f| libp::load_lib(f.to_string()))
-        .collect();
 
     let mut funsyms = HashMap::new();
-    for lib in libs.clone() {
-        for bind in lib.binds {
-            funsyms.insert(
-                bind.0.clone(),
-                FunSym {
-                    name: bind.0,
-                    source: None,
-                    args: bind.1.args,
-                },
-            );
-        }
+    for f in funcs {
+        funsyms.insert(
+            f.0.clone(),
+            FunSym {
+                name: f.0.clone(),
+                source: None,
+                args: f.1.args.clone(),
+            },
+        );
     }
     for builtin in builtins::functions() {
         funsyms.insert(
@@ -52,7 +42,6 @@ pub fn parse(tkns: Vec<Token>, input: String) -> Root {
     Root {
         root: rootblock,
         functions,
-        libraries: libs,
     }
 }
 fn make_functions(
@@ -67,7 +56,6 @@ fn make_functions(
                 functions.insert(
                     sym.0.to_string(),
                     Function {
-                        name: sym.0.to_string(),
                         args: sym.1.args.clone(),
                         source: parse_block(
                             &source,
@@ -174,7 +162,7 @@ fn make_funsyms(tokens: &mut Vec<Token>, input: &String, funsyms: &mut HashMap<S
         }
     }
 }
-fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
+pub fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
     let mut idx = 0;
     let mut loads = vec![];
     while idx < tokens.len() {
@@ -231,7 +219,7 @@ fn parse_args(
             }
             let token = &tokens[*idx];
             match &token.symbol {
-                Symbol::Constant(_) | Symbol::Name(_) => {
+                Symbol::Constant(_) | Symbol::Name(_) | Symbol::Lambda => {
                     if const_valid {
                         // if it's the first element in the array or part of an expression
                         match token.symbol.clone() {
@@ -245,6 +233,35 @@ fn parse_args(
                                 )));
 
                                 *idx -= 1;
+                            }
+                            Symbol::Lambda => {
+                                // implement capturing, do later
+                                *idx += 1;
+                                let mut args = vec![];
+                                loop {
+                                    match &tokens[*idx].symbol {
+                                        Symbol::Name(s) => args.push(s.clone()),
+                                        Symbol::Lambda => break,
+                                        _ => todo!(),
+                                    }
+                                    *idx += 1;
+                                }
+                                *idx += 1;
+                                dbg!(&tokens[*idx]);
+                                let endidx = next_symbol_block(
+                                    tokens,
+                                    input,
+                                    *idx,
+                                    Symbol::BlockStart,
+                                    Symbol::BlockEnd,
+                                );
+                                let block =
+                                    parse_block(tokens, input, funsyms, None, &args, *idx, endidx);
+                                exp.push(ExpressionFragment::Lambda(Function {
+                                    args: args,
+                                    source: block,
+                                }));
+                                *idx = endidx;
                             }
                             _ => panic!(),
                         }
@@ -398,7 +415,7 @@ fn parse_block(
     let mut idx = idxstart;
 
     while idx < idxend {
-        let mut token = &tokens[idx];
+        let token = &tokens[idx];
         // dbg!(&root.children);
         match &token.symbol {
             Symbol::If => {
@@ -497,7 +514,8 @@ fn parse_block(
 
                     if if let Some(last) = vref.operations.last() {
                         match last {
-                            VarRefFragment::ObjectCall { name, args } => true,
+                            VarRefFragment::ObjectCall { name: _, args: _ } => true,
+                            VarRefFragment::LambdaCall(_) => true,
                             _ => false,
                         }
                     } else {
@@ -747,6 +765,7 @@ fn parse_name(
 
     *idx += 1;
     while *idx < tokens.len() {
+        dbg!(&tokens[*idx]);
         match &tokens[*idx].symbol {
             Symbol::IndexObject => {
                 *idx += 1;
@@ -767,27 +786,12 @@ fn parse_name(
                     Some(tkn) => match tkn.symbol {
                         Symbol::ParenStart => {
                             *idx += 1;
-                            let endidx = match &tokens[*idx].symbol {
-                                Symbol::ParenEnd => *idx,
-                                _ => next_symbol_block(
-                                    tokens,
-                                    input,
-                                    *idx,
-                                    Symbol::ParenStart,
-                                    Symbol::ParenEnd,
-                                ),
-                            };
 
-                            let mut args: Vec<Expression> = vec![];
-
-                            while *idx < endidx {
-                                args.append(&mut parse_args(
-                                    tokens, input, funsyms, scope, exargs, 1, idx,
-                                ));
-                            }
                             fragments.push(VarRefFragment::ObjectCall {
                                 name: funcname.clone(),
-                                args,
+                                args: parse_args_with_parens(
+                                    tokens, input, funsyms, scope, exargs, idx,
+                                ),
                             });
                         }
                         _ => {
@@ -806,6 +810,13 @@ fn parse_name(
                 let arg = parse_args(tokens, input, funsyms, scope, exargs, 1, idx)[0].clone();
                 fragments.push(VarRefFragment::IndexInto(arg));
                 // *idx += 1;
+            }
+            Symbol::ParenStart => {
+                *idx += 1;
+
+                fragments.push(VarRefFragment::LambdaCall(parse_args_with_parens(
+                    tokens, input, funsyms, scope, exargs, idx,
+                )));
             }
 
             _ => break,
@@ -876,6 +887,29 @@ fn parse_name(
         operations: fragments,
     }
 }
+fn parse_args_with_parens(
+    tokens: &Vec<Token>,
+    input: &String,
+    funsyms: &HashMap<String, FunSym>,
+    scope: &Block,
+    exargs: &Vec<String>,
+    idx: &mut usize,
+) -> Vec<Expression> {
+    let endidx = match &tokens[*idx].symbol {
+        Symbol::ParenEnd => *idx,
+        _ => next_symbol_block(tokens, input, *idx, Symbol::ParenStart, Symbol::ParenEnd),
+    };
+
+    let mut args: Vec<Expression> = vec![];
+
+    while *idx < endidx {
+        args.append(&mut parse_args(
+            tokens, input, funsyms, scope, exargs, 1, idx,
+        ));
+    }
+
+    args
+}
 fn parse_fncall(
     tokens: &Vec<Token>,
     input: &String,
@@ -912,7 +946,6 @@ fn parse_fncall(
 pub struct Root {
     pub root: Block,
     pub functions: HashMap<String, Function>, // includes: Vec<String>
-    pub libraries: Vec<Library>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -962,7 +995,6 @@ pub enum Frag {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
-    pub name: String,
     pub args: Vec<String>,
     pub source: Block,
 }
@@ -973,16 +1005,7 @@ pub enum ExpressionFragment {
     Call(Call),
     Expression(Expression),
     VarRef(VarRef),
-    // Name(String), //remember that this could also be a function call :/
-    // IndexName {
-    //     name: String,
-    //     index: Expression,
-    // },
-    // ObjectCall {
-    //     objectname: String,
-    //     functionname: String,
-    //     args: Vec<Expression>,
-    // },
+    Lambda(Function),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1002,6 +1025,7 @@ pub enum VarRefFragment {
     IndexInto(Expression),
     ObjectProperty(String),
     ObjectCall { name: String, args: Vec<Expression> },
+    LambdaCall(Vec<Expression>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1017,3 +1041,4 @@ pub enum Constant {
 }
 
 type Expression = Vec<ExpressionFragment>;
+type Extfn = fn(Vec<Value>) -> Value;

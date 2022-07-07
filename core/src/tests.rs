@@ -1,7 +1,7 @@
 use colored::Colorize;
 
 use crate::runtime::run;
-use std::{fs, path::Path};
+use std::{fs};
 
 // #[test]
 pub fn tests() {

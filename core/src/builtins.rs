@@ -4,35 +4,13 @@ use std::cell::RefCell;
 use std::io::{stdin, stdout, Write};
 use std::rc::Rc;
 use substring::Substring;
-use zsp_macros::function;
 
+// use crate::
+use crate::afunc;
+use crate::func;
 use crate::runtime::{FunctionType, Object, RFunction, Value};
 
-macro_rules! func {
-    ($name:expr,$fn:expr,$args:expr) => {
-        (
-            String::from($name),
-            RFunction {
-                name: String::from($name),
-                func: FunctionType::BuiltinFunction($fn),
-                args: vec!["".into(); $args],
-            },
-        )
-    };
-}
-macro_rules! afunc {
-    ($name:expr,$fn:expr,$args:expr) => {
-        (
-            String::from($name),
-            Rc::new(RefCell::new(Value::Lambda(RFunction {
-                name: String::from($name),
-                func: FunctionType::BuiltinFunction($fn),
-                args: vec!["".into(); $args],
-            }))),
-        )
-    };
-}
-pub fn functions<'a>() -> HashMap<String, RFunction<'a>> {
+pub fn functions<'a>() -> HashMap<String, RFunction> {
     HashMap::from([
         func!("put", zsp_put, 1),
         func!("get", zsp_get, 0),
@@ -50,19 +28,61 @@ pub fn boolprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
     HashMap::new()
 }
 pub fn stringprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
-    HashMap::from([afunc!("firstchar", string_substr, 0)])
+    HashMap::from([
+        afunc!("substr", string_substr, 2),
+        afunc!("split", string_split, 1),
+        afunc!("at", string_at, 1),
+        afunc!("tolower", string_to_lower, 1),
+        afunc!("replace", string_replace, 2),
+    ])
 }
 pub fn arrayprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
     HashMap::new()
 }
 pub fn numberprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
-    HashMap::from([afunc!("add", number_add, 1)])
+    HashMap::from([
+        afunc!("pow", number_pow, 1),
+        afunc!("tostring", number_tostring, 1),
+    ])
 }
-fn number_add(inp: Vec<Value>) -> Value {
-    Value::Number(inp[0].to_number() + inp[1].to_number())
+fn number_pow(inp: Vec<Value>) -> Value {
+    Value::Number(inp[0].to_number().powf(inp[1].to_number()))
+}
+fn number_tostring(inp: Vec<Value>) -> Value {
+    Value::String(inp[0].to_number().to_string())
 }
 fn string_substr(inp: Vec<Value>) -> Value {
-    Value::String(inp[0].to_string().substring(0, 1).to_string())
+    Value::String(
+        inp[0]
+            .to_string()
+            .substring(inp[1].to_number() as usize, inp[2].to_number() as usize)
+            .to_string(),
+    )
+}
+fn string_at(inp: Vec<Value>) -> Value {
+    Value::String(
+        inp[0].to_string().chars().collect::<Vec<char>>()[inp[1].to_number() as usize].to_string(),
+    )
+}
+fn string_to_lower(inp: Vec<Value>) -> Value {
+    Value::String(inp[0].to_string().to_lowercase())
+}
+fn string_replace(inp: Vec<Value>) -> Value {
+    Value::String(
+        inp[0]
+            .to_string()
+            .replace(&inp[1].to_string(), &inp[2].to_string()),
+    )
+}
+fn string_split(inp: Vec<Value>) -> Value {
+    Value::Array(
+        inp[0]
+            .to_string()
+            .split(|c| c == inp[1].to_string().chars().collect::<Vec<char>>()[0])
+            .map(|f| Rc::new(RefCell::new(Value::String(f.to_string()))))
+            .collect(),
+    )
+    // man i sure do love iterators (clueless)
 }
 
 fn zsp_array_new(_args: Vec<Value>) -> Value {

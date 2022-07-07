@@ -3,7 +3,7 @@ use std::{
 };
 
 use crate::{
-    builtins,
+    builtins::{self, functions},
     exceptions::rtexception,
     lexer::{self, Op},
     parser::{
@@ -27,36 +27,22 @@ use typed_arena::Arena;
 //3. pointers
 
 // run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
-pub fn run(path: &Path) {
+pub fn run<'a>(path: &Path) {
     let contents = fs::read_to_string(path)
         .expect("could not read file")
         .chars()
         .filter(|c| c != &'\r')
         .collect::<String>();
 
-    let tokens = lexer::lex(contents.clone());
-    println!("{:?}", tokens);
-    let parsed = parser::parse(tokens, contents.clone());
-    // println!("{:?}", parsed);
-    interpret(parsed);
-}
+    let mut tokens = lexer::lex(contents.clone());
+    // println!("{:?}", tokens);
+    let libnames = parser::find_loads(&mut tokens, &contents.clone());
 
-pub fn interpret(root: Root) {
-    // dbg!(root);
-    // root.root.Run();
-    // insert environemnt variables
+    let mut libraryfunctions = HashMap::new();
 
-    let mut functions = builtins::functions();
-
-    // load dlls
-
-    // unsafe {
-    let heap = Arena::new();
-    // yay entire program is unsafe wooo
-    for lib in root.libraries {
-        // for root
+    for ln in libnames {
         unsafe {
-            let libobj = heap.alloc(
+            let lib = Box::leak(Box::new(
                 libloading::Library::new(format!(
                     "{}/{}",
                     std::env::current_dir()
@@ -64,32 +50,40 @@ pub fn interpret(root: Root) {
                         .as_os_str()
                         .to_str()
                         .unwrap(),
-                    lib.static_loc
+                    ln //+ .dll or .so
                 ))
                 .unwrap(),
-            ); // lazy bad unsafe garbage code
+            ));
+            // produces a 'static reference. needed as library will survive for the entirety of the program
+            let libinfo = lib
+                .get::<fn() -> HashMap<String, RFunction>>("lib".as_bytes())
+                .unwrap()();
 
-            for bind in lib.binds {
-                let fnc: libloading::Symbol<fn(Vec<Value>) -> Value> =
-                    libobj.get(bind.1.bound_symbol.as_bytes()).unwrap();
-                functions.insert(
-                    bind.0.clone(),
-                    RFunction {
-                        name: bind.0.clone(),
-                        args: bind.1.args,
-                        func: FunctionType::ExternalFunction(fnc),
-                    },
-                );
+            for (k, v) in libinfo.into_iter() {
+                libraryfunctions.insert(k, v);
             }
         }
     }
+    let parsed = parser::parse(tokens, contents.clone(), &libraryfunctions);
+    println!("{:?}", parsed);
+    interpret(parsed, &libraryfunctions);
+}
 
+pub fn interpret(root: Root, libraryfunctions: &HashMap<String, RFunction>) {
+    // dbg!(root);
+    // root.root.Run();
+    // insert environemnt variables
+
+    let mut functions = builtins::functions();
+
+    for (k, v) in libraryfunctions {
+        functions.insert(k.clone(), v.clone());
+    }
     for fun in root.functions {
         let cfn = fun.1.clone();
         functions.insert(
             fun.0,
             RFunction {
-                name: cfn.name.clone(),
                 args: cfn.args.clone(),
                 func: FunctionType::InternalFunction(cfn.clone()),
             },
@@ -110,7 +104,7 @@ fn run_root<'a>(root: Scope<'a>, functions: &HashMap<String, RFunction>) -> Valu
         match &pointer.scopetype {
             ScopeType::For {
                 condition,
-                incrementor,
+                incrementor: _,
             } => {
                 if !pointer.evaluate_expression(condition, &functions).to_bool() {
                     stack.pop();
@@ -192,7 +186,7 @@ fn run_root<'a>(root: Scope<'a>, functions: &HashMap<String, RFunction>) -> Valu
                             _ => return false,
                         }
                     }) {
-                        Some(p) => {
+                        Some(_) => {
                             // idx += 1;
                         }
                         None => rtexception(
@@ -226,7 +220,7 @@ fn run_root<'a>(root: Scope<'a>, functions: &HashMap<String, RFunction>) -> Valu
                 pointer.idx = 0;
             }
             ScopeType::For {
-                condition,
+                condition: _,
                 incrementor,
             } => {
                 run_root(
@@ -334,6 +328,44 @@ impl<'a> Scope<'a> {
                 .get_varref(vref.clone(), functions, false)
                 .borrow_mut()
                 .clone(),
+            ExpressionFragment::Lambda(l) => Value::Lambda {
+                takeself: false,
+                func: RFunction {
+                    args: l.args.clone(),
+                    func: FunctionType::InternalFunction(l.clone()),
+                },
+            },
+            _ => panic!(),
+        }
+    }
+    pub fn call_lambda(
+        &self,
+        func: &Value,
+        args: &Vec<Vec<ExpressionFragment>>,
+        ptr: &mut Rc<RefCell<Value<'a>>>,
+        functions: &HashMap<String, RFunction>,
+    ) {
+        match func {
+            Value::Lambda { takeself, func } => {
+                // TODO: make it not clone, use &mut references instead
+                let mut args: Vec<Value> = args
+                    .iter()
+                    .map(|f| self.evaluate_expression(f, &functions))
+                    .collect();
+                let mut nargs = vec![];
+                let mut requiredargs = func.args.len();
+                if *takeself {
+                    requiredargs += 1;
+                    nargs.push(ptr.borrow_mut().clone());
+                }
+                nargs.append(&mut args);
+
+                if nargs.len() != requiredargs {
+                    panic!("expected {} args, got {} args", requiredargs, nargs.len());
+                }
+
+                *ptr = Rc::new(RefCell::new(self.call_function(func, nargs, functions)))
+            }
             _ => panic!(),
         }
     }
@@ -373,24 +405,9 @@ impl<'a> Scope<'a> {
                     match fields.get(name) {
                         Some(v) => {
                             let val = v.borrow_mut();
-                            match &*val {
-                                Value::Lambda(l) => match l.func {
-                                    FunctionType::BuiltinFunction(f) => {
-                                        // TODO: make it not clone, use &mut references instead
-                                        let mut args: Vec<Value> = args
-                                            .iter()
-                                            .map(|f| self.evaluate_expression(f, &functions))
-                                            .collect();
-                                        let mut nargs = vec![ptr.borrow_mut().clone()];
-                                        nargs.append(&mut args);
-                                        ptr = Rc::new(RefCell::new(f(nargs)))
-                                    }
-                                    _ => todo!(),
-                                },
-                                _ => panic!(),
-                            }
+                            self.call_lambda(&val, args, &mut ptr, functions);
                         }
-                        None => panic!(),
+                        None => panic!(), // do later raise error if field isn't there
                     }
                 }
                 VarRefFragment::ObjectProperty(name) => {
@@ -411,6 +428,10 @@ impl<'a> Scope<'a> {
                             };
                         }
                     }
+                }
+                VarRefFragment::LambdaCall(l) => {
+                    let mut fnc = ptr.clone().borrow_mut().clone();
+                    self.call_lambda(&mut fnc, l, &mut ptr, functions)
                 }
             }
         }
@@ -446,7 +467,6 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
     ) -> Value<'a> {
         match &rf.func {
-            FunctionType::ExternalFunction(extfnc) => extfnc(args),
             FunctionType::InternalFunction(func) => {
                 let mut passedargs = self.variables.clone();
                 for (i, argname) in func.args.iter().enumerate() {
@@ -455,7 +475,7 @@ impl<'a> Scope<'a> {
                 let nsc = func.source.to_scope(ScopeType::Function, passedargs);
                 run_root(nsc, functions)
             }
-            FunctionType::BuiltinFunction(func) => func(args),
+            FunctionType::ExternalFunction(func) => func(args),
         }
     }
 }
@@ -469,25 +489,23 @@ enum ExpressionVal<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RFunction<'a> {
-    pub name: String,
+pub struct RFunction {
     pub args: Vec<String>,
-    pub func: FunctionType<'a>,
+    pub func: FunctionType,
 }
 
 #[derive(Clone)]
-pub enum FunctionType<'a> {
+pub enum FunctionType {
     InternalFunction(parser::Function),
-    BuiltinFunction(fn(Vec<Value>) -> Value),
-    ExternalFunction(libloading::Symbol<'a, fn(Vec<Value>) -> Value>),
+    ExternalFunction(Extfn),
 }
-impl<'a> Debug for FunctionType<'a> {
+impl Debug for FunctionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Function>")
     }
 }
 
-impl<'a> PartialEq for FunctionType<'a> {
+impl PartialEq for FunctionType {
     fn eq(&self, other: &Self) -> bool {
         false
     }
@@ -521,7 +539,7 @@ pub enum Value<'a> {
     Array(Vec<Rc<RefCell<Value<'a>>>>),
     Null,
     Object(Object<'a>),
-    Lambda(RFunction<'a>),
+    Lambda { takeself: bool, func: RFunction },
     DynObject(DynObjectContainer<'a>),
 }
 
@@ -566,7 +584,10 @@ impl<'a> Value<'a> {
             Value::String(_) => builtins::stringprototype(),
             Value::Array(_) => builtins::arrayprototype(),
             Value::Object(obj) => obj.fields.clone(),
-            Value::Lambda(_) => HashMap::new(),
+            Value::Lambda {
+                takeself: _,
+                func: _,
+            } => HashMap::new(),
             Value::DynObject(o) => o.val.fields(),
         }
     }
@@ -668,3 +689,9 @@ impl<'a> Value<'a> {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct Library<'a> {
+    pub func: fn(Vec<Value<'a>>) -> Value<'a>,
+}
+
+type Extfn = fn(Vec<Value>) -> Value;

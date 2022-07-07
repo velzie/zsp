@@ -1,7 +1,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use zsp_core::runtime::{DynObject, DynObjectContainer, Value};
+use zsp_core::func;
+use zsp_core::runtime::{DynObject, DynObjectContainer, FunctionType, RFunction, Value};
+#[no_mangle]
+pub fn lib() -> HashMap<String, RFunction> {
+    HashMap::from([func!("celeste", celesteobj, 0)])
+}
+
 #[no_mangle]
 pub fn celesteobj<'a>(inp: Vec<Value<'a>>) -> Value<'a> {
     Value::DynObject(DynObjectContainer {

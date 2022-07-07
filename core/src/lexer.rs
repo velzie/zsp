@@ -16,12 +16,11 @@ lazy_static! {
         ('\n', None),
         (';', None),
         (' ', None),
-        ('\u{0017}',None),
+        ('\u{0017}', None),
         ('(', Some(Symbol::ParenStart)),
         (')', Some(Symbol::ParenEnd)),
         ('{', Some(Symbol::BlockStart)),
         ('}', Some(Symbol::BlockEnd)),
-
         ('+', Some(Symbol::Op(Op::Plus))),
         ('-', Some(Symbol::Op(Op::Minus))),
         ('*', Some(Symbol::Op(Op::Multiply))),
@@ -29,21 +28,19 @@ lazy_static! {
         ('[', Some(Symbol::IndexStart)),
         (']', Some(Symbol::IndexEnd)),
         (':', Some(Symbol::IndexObject)),
-        // ('<', Some(Symbol::LambdaStart)),
-        // ('>', Some(Symbol::LambdaEnd)),
+        ('|', Some(Symbol::Lambda)),
     ]);
     static ref KEYWORDS: HashMap<String, Symbol> = HashMap::from([
         mk!("if", Symbol::If),
-        mk!("loop",Symbol::Loop),
-        mk!("break",Symbol::Break),
-        mk!("return",Symbol::Return),
-        mk!("for",Symbol::For),
-        mk!("load",Symbol::Load),
-        mk!("true",Symbol::Constant(Constant::Bool(true))),
-        mk!("false",Symbol::Constant(Constant::Bool(false))),
+        mk!("loop", Symbol::Loop),
+        mk!("break", Symbol::Break),
+        mk!("return", Symbol::Return),
+        mk!("for", Symbol::For),
+        mk!("load", Symbol::Load),
+        mk!("true", Symbol::Constant(Constant::Bool(true))),
+        mk!("false", Symbol::Constant(Constant::Bool(false))),
         mk!("=", Symbol::Assign),
         mk!("else", Symbol::Else),
-
         mk!("<", Symbol::Op(Op::LessThan)),
         mk!("<=", Symbol::Op(Op::LessThanOrEqualTo)),
         mk!(">", Symbol::Op(Op::GreaterThan)),
@@ -53,9 +50,7 @@ lazy_static! {
         mk!("&&", Symbol::Op(Op::And)),
         mk!("||", Symbol::Op(Op::Or)),
         mk!('!', Symbol::Op(Op::Not)),
-
         mk!("/", Symbol::Op(Op::Divide)),
-
     ]);
 }
 pub fn lex(inp: String) -> Vec<Token> {
@@ -155,6 +150,7 @@ pub enum Symbol {
     IndexStart,
     IndexEnd,
     IndexObject,
+    Lambda,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {

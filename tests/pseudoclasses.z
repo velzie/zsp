@@ -1,0 +1,14 @@
+fooconstructor {
+   foo = object
+   foo:val = 0
+   foo:increment = |self|{
+      self:val = self:val + 1
+   }
+   return foo
+}
+
+
+instance_of_foo = fooconstructor
+
+instance_of_foo:increment(instance_of_foo)
+put instance_of_foo:val
