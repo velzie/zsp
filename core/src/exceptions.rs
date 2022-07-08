@@ -1,9 +1,32 @@
 use crate::lexer::Symbol;
 use crate::parser::Block;
 use colored::Colorize;
-use std::io;
 
-pub fn unexpected_symbol_exception(input: &String, idx: usize, context: Block, symbol: Symbol) {
+pub fn unexpected_symbol_exception(
+    input: &String,
+    idx: usize,
+    symbol: Symbol,
+    allowed: Vec<Symbol>,
+) {
+    exception(
+        input,
+        idx,
+        "UnexpectedSymbolException",
+        &format!(
+            "Expected {}: {}",
+            if allowed.len() > 1 {
+                "one of the following symbols"
+            } else {
+                "the symbol"
+            },
+            allowed
+                .iter()
+                .fold(String::new(), |acc, x| acc + ", " + &x.display_name())
+        ),
+    );
+}
+
+pub fn old_unexpected_symbol_exception(input: &String, idx: usize, context: Block, symbol: Symbol) {
     exception(
         input,
         idx,
@@ -28,6 +51,9 @@ pub fn rtexception(input: &String, idx: usize, errtype: &str, message: &str) {
     );
 }
 pub fn exception(input: &String, idx: usize, errtype: &str, message: &str) {
+    exceptionbuilder(input, idx, errtype, message);
+}
+pub fn exceptionbuilder(input: &String, idx: usize, errtype: &str, message: &str) {
     let mut i = 0;
     let mut lines = 0;
     let mut offset = 0;

@@ -1,6 +1,6 @@
 use colored::Colorize;
 
-use crate::runtime::run;
+use crate::runtime::execute;
 use std::{fs};
 
 // #[test]
@@ -23,7 +23,12 @@ pub fn tests() {
                     .blue()
             )
         );
-        run(path.unwrap().path().as_path());
+        let contents = fs::read_to_string(path.unwrap().path().as_path())
+        .expect("could not read file")
+        .chars()
+        .filter(|c| c != &'\r')
+        .collect::<String>();
+        execute(contents);
         println!("{}", "passed test!".green());
     }
 

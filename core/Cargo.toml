@@ -11,7 +11,6 @@ substring = "1.4.5"
 json="*"
 termcolor = "*"
 libloading="*"
-typed-arena="*"
 zsp-macros = {path="../macros"}
 serde = "*"
 serde_json = "*"

@@ -169,3 +169,21 @@ pub enum Op {
     And,
     Or,
 }
+
+impl Symbol {
+    pub fn display_name(&self) -> String {
+        for (k, v) in INTERRUPTS.clone().into_iter() {
+            if let Some(s) = v {
+                if std::mem::discriminant(&s) == std::mem::discriminant(&self) {
+                    return k.to_string();
+                }
+            }
+        }
+        for (k, v) in KEYWORDS.clone().into_iter() {
+            if std::mem::discriminant(&v) == std::mem::discriminant(&self) {
+                return k.to_string();
+            }
+        }
+        return "(Name)".into()
+    }
+}

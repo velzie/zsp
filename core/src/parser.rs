@@ -10,7 +10,7 @@ use core::panic;
 use std::collections::HashMap;
 
 use crate::exceptions::*;
-pub fn parse(tkns: Vec<Token>, input: String, funcs: &HashMap<String, RFunction>) -> Root {
+pub fn parse(tkns: Vec<Token>, input: &String, funcs: &HashMap<String, RFunction>) -> Root {
     let mut tokens = tkns.clone();
 
     let mut funsyms = HashMap::new();
@@ -176,7 +176,7 @@ pub fn find_loads(tokens: &mut Vec<Token>, input: &String) -> Vec<String> {
                         tokens.drain(idx - 1..idx + 1);
                         idx -= 1;
                     }
-                    _ => unexpected_symbol_exception(
+                    _ => old_unexpected_symbol_exception(
                         &input,
                         token.index,
                         Block {
@@ -273,7 +273,7 @@ fn parse_args(
                             // move onto next argument
                             break;
                         } else {
-                            unexpected_symbol_exception(
+                            old_unexpected_symbol_exception(
                                 &input,
                                 token.index,
                                 scope.clone(),
@@ -288,7 +288,7 @@ fn parse_args(
                         *idx += 1;
                         const_valid = true;
                     } else {
-                        unexpected_symbol_exception(
+                        old_unexpected_symbol_exception(
                             &input,
                             token.index,
                             scope.clone(),
@@ -462,7 +462,7 @@ fn parse_block(
                                     Symbol::If => {
                                         panic!("sorry that's complicated and i'm dumb");
                                     }
-                                    _ => unexpected_symbol_exception(
+                                    _ => old_unexpected_symbol_exception(
                                         &input,
                                         token.index,
                                         root.clone(),
@@ -682,9 +682,18 @@ fn parse_block(
             }
             Symbol::For => {
                 idx += 1;
-                let name = match &tokens[idx].symbol {
+                let tkn = &tokens.sget(idx, vec![Symbol::Name(String::new())], input);
+                let name = match tkn {
                     Symbol::Name(n) => n.clone(),
-                    _ => panic!(),
+                    _ => {
+                        unexpected_symbol_exception(
+                            input,
+                            idx,
+                            tkn.clone().clone(),
+                            vec![Symbol::Name(String::default())],
+                        );
+                        unreachable!();
+                    }
                 };
                 idx += 1;
                 let mut innerargs = args.clone();
@@ -730,9 +739,12 @@ fn parse_block(
                 idx -= 1;
             }
 
-            _ => {
-                unexpected_symbol_exception(&input, token.index, root.clone(), token.symbol.clone())
-            }
+            _ => old_unexpected_symbol_exception(
+                &input,
+                token.index,
+                root.clone(),
+                token.symbol.clone(),
+            ),
         }
 
         idx += 1;
@@ -765,14 +777,13 @@ fn parse_name(
 
     *idx += 1;
     while *idx < tokens.len() {
-        dbg!(&tokens[*idx]);
         match &tokens[*idx].symbol {
             Symbol::IndexObject => {
                 *idx += 1;
                 let funcname = match &tokens[*idx].symbol {
                     Symbol::Name(n) => n,
                     _ => {
-                        unexpected_symbol_exception(
+                        old_unexpected_symbol_exception(
                             input,
                             *idx,
                             scope.clone(),
@@ -809,7 +820,6 @@ fn parse_name(
                 *idx += 1;
                 let arg = parse_args(tokens, input, funsyms, scope, exargs, 1, idx)[0].clone();
                 fragments.push(VarRefFragment::IndexInto(arg));
-                // *idx += 1;
             }
             Symbol::ParenStart => {
                 *idx += 1;
@@ -823,65 +833,6 @@ fn parse_name(
         }
         *idx += 1;
     }
-    //     Symbol::IndexStart => {
-    //         *idx += 2;
-    //         let arg = parse_args(
-    //             tokens, input, funsyms, scope, exargs, 1, idx,
-    //         )[0]
-    //         .clone();
-
-    //         exp.push(ExpressionFragment::IndexName {
-    //             name: n.clone(),
-    //             index: arg,
-    //         });
-
-    //         true
-    //     }
-    //     Symbol::IndexObject => {
-    //         *idx += 2;
-    //         let funcname = match &tokens[*idx].symbol {
-    //             Symbol::Name(n) => n,
-    //             _ => {
-    //                 unexpected_symbol_exception(
-    //                     input,
-    //                     *idx,
-    //                     scope.clone(),
-    //                     tokens[*idx].symbol.clone(),
-    //                 );
-    //                 panic!("this is unreachable but the compiler doesn't know that so :/ ");
-    //             }
-    //         };
-    //         *idx += 2;
-    //         let endidx = match &tokens[*idx].symbol {
-    //             Symbol::ParenEnd => *idx,
-    //             _ => next_symbol_block(
-    //                 tokens,
-    //                 input,
-    //                 *idx,
-    //                 Symbol::ParenStart,
-    //                 Symbol::ParenEnd,
-    //             ),
-    //         };
-
-    //         let mut args: Vec<Expression> = vec![];
-
-    //         while *idx < endidx {
-    //             args.append(&mut parse_args(
-    //                 tokens, input, funsyms, scope, exargs, 1,
-    //                 idx,
-    //             ));
-    //         }
-    //         exp.push(ExpressionFragment::ObjectCall {
-    //             objectname: n.clone(),
-    //             functionname: funcname.clone(),
-    //             args,
-    //         });
-    //         // also we need to have dlls to be able to add more types.
-
-    //         true
-    //     }
-    //     _ => false,
-    // }
     VarRef {
         root: root,
         operations: fragments,
@@ -941,6 +892,22 @@ fn parse_fncall(
         args: fnargs,
     };
 }
+impl CatchGet for Vec<Token> {
+    fn sget(&self, idx: usize, allowed: Vec<Symbol>, input: &String) -> &Symbol {
+        match self.get(idx) {
+            Some(t) => &t.symbol,
+            None => {
+                // lazy. fix later
+                unexpected_symbol_exception(input, idx, Symbol::Name("EndOfFile".into()), allowed);
+                unreachable!()
+            }
+        }
+    }
+}
+trait CatchGet {
+    fn sget(&self, getidx: usize, allowed: Vec<Symbol>, input: &String) -> &Symbol;
+}
+// fn safeget()
 
 #[derive(Debug, Clone)]
 pub struct Root {
