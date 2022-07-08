@@ -4,7 +4,7 @@ use std::{
 
 use crate::{
     builtins::{self, functions},
-    exceptions::rtexception,
+    exceptions::{exception, rtexception},
     lexer::{self, Op},
     parser::{
         self, Block, Constant, ExpressionFragment, Frag, Fragment, Function, Root, VarRef,
@@ -26,7 +26,7 @@ use crate::{
 //3. pointers
 
 // run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
-pub fn execute<'a>(input: String) {
+pub fn execute<'a>(input: String, envfncs: Option<HashMap<String, RFunction>>) {
     let mut tokens = lexer::lex(input.clone());
     // println!("{:?}", tokens);
     let libnames = parser::find_loads(&mut tokens, &input);
@@ -55,6 +55,11 @@ pub fn execute<'a>(input: String) {
             for (k, v) in libinfo.into_iter() {
                 libraryfunctions.insert(k, v);
             }
+            if let Some(ext) = envfncs.clone() {
+                for (k, v) in ext.into_iter() {
+                    libraryfunctions.insert(k, v);
+                }
+            }
         }
     }
     let root = parser::parse(tokens, &input, &libraryfunctions);
@@ -76,29 +81,31 @@ pub fn execute<'a>(input: String) {
         );
     }
 
-    run_root(
+    let rootscope = Rc::new(RefCell::new(
         root.root.to_scope(ScopeType::Function, HashMap::new()),
-        &functions,
-        &input,
-    );
+    ));
+    run_root(rootscope, &functions, &input);
+
+    // rootscope.call_function(&functions.get("draw").unwrap(), vec![], &functions, &input);
 }
 
-fn run_root<'a>(
-    root: Scope<'a>,
+pub fn run_root<'a>(
+    root: Rc<RefCell<Scope<'a>>>,
     functions: &HashMap<String, RFunction>,
     input: &String,
 ) -> Value<'a> {
-    let mut stack: Vec<Scope> = vec![];
+    let mut stack: Vec<Rc<RefCell<Scope>>> = vec![];
     stack.push(root);
     'stack: while stack.len() > 0 {
-        let mut pointer = stack.last_mut().unwrap();
+        let tmp = stack.last_mut().unwrap().clone();
+        let mut pointer = tmp.borrow_mut();
         match &pointer.scopetype {
             ScopeType::For {
                 condition,
                 incrementor: _,
             } => {
                 if !pointer
-                    .evaluate_expression(condition, &functions, input)
+                    .evaluate_expression(condition, &functions, input, 0)
                     .to_bool()
                 {
                     stack.pop();
@@ -109,7 +116,7 @@ fn run_root<'a>(
         }
         while pointer.idx < pointer.structure.children.len() {
             // dbg!(&pointer);
-            let frag = &pointer.structure.children[pointer.idx];
+            let frag = &pointer.clone().structure.children[pointer.idx];
 
             match &frag.frag {
                 Frag::For {
@@ -126,14 +133,12 @@ fn run_root<'a>(
                         },
                         pointer.variables.clone(),
                     );
-                    scope.variables.insert(
-                        name.clone(),
-                        Rc::new(RefCell::new(
-                            pointer.evaluate_expression(initial, &functions, input),
-                        )),
-                    );
+                    let v = Rc::new(RefCell::new(
+                        pointer.evaluate_expression(initial, &functions, input, frag.index),
+                    ));
+                    scope.variables.insert(name.clone(), v);
                     pointer.idx += 1;
-                    stack.push(scope);
+                    stack.push(Rc::new(RefCell::new(scope)));
                     continue 'stack;
                 }
                 Frag::If {
@@ -142,45 +147,44 @@ fn run_root<'a>(
                     falseblock,
                 } => {
                     if pointer
-                        .evaluate_expression(&condition, functions, input)
+                        .evaluate_expression(&condition, functions, input, frag.index)
                         .to_bool()
                     {
                         pointer.idx += 1;
                         let tscope = trueblock.to_scope(ScopeType::If, pointer.variables.clone());
-                        stack.push(tscope);
+                        stack.push(Rc::new(RefCell::new(tscope)));
                         continue 'stack;
                     } else if let Some(fb) = falseblock {
                         pointer.idx += 1;
                         let fscope = fb.to_scope(ScopeType::If, pointer.variables.clone());
-                        stack.push(fscope);
+                        stack.push(Rc::new(RefCell::new(fscope)));
                         continue 'stack;
                     }
                 }
                 Frag::Call(call) => {
                     // note: this will evaluate the call. i would prefer it to be a little more explicit but that would just mean repeating code i already wrote
-                    pointer.get_varref(call.clone(), false, functions, input);
+                    pointer.get_varref(call.clone(), false, functions, input, frag.index);
                 }
                 Frag::Assignment { variable, value } => {
                     *pointer
-                        .get_varref(variable.clone(), true, functions, input)
-                        .borrow_mut() = pointer.evaluate_expression(&value, functions, input);
+                        .get_varref(variable.clone(), true, functions, input, frag.index)
+                        .borrow_mut() =
+                        pointer.evaluate_expression(&value, functions, input, frag.index);
                 }
                 Frag::Initialize { variable, value } => {
-                    pointer.variables.insert(
-                        variable.clone(),
-                        Rc::new(RefCell::new(
-                            pointer.evaluate_expression(&value, functions, input),
-                        )),
-                    );
+                    let v = pointer.evaluate_expression(&value, functions, input, frag.index);
+                    pointer
+                        .variables
+                        .insert(variable.clone(), Rc::new(RefCell::new(v)));
                 }
                 Frag::Return(exp) => {
-                    return pointer.evaluate_expression(&exp, functions, input);
+                    return pointer.evaluate_expression(&exp, functions, input, frag.index);
                 }
                 Frag::Break => {
                     let idx = frag.index.clone();
                     match stack.clone().iter().rev().position(|f| {
                         stack.pop();
-                        match f.scopetype {
+                        match f.borrow_mut().scopetype {
                             ScopeType::Loop => return true,
                             _ => return false,
                         }
@@ -202,13 +206,13 @@ fn run_root<'a>(
                     let scope = block.to_scope(ScopeType::Loop, pointer.variables.clone());
 
                     pointer.idx += 1;
-                    stack.push(scope);
+                    stack.push(Rc::new(RefCell::new(scope)));
                     continue 'stack;
                 }
                 Frag::Block(block) => {
                     let scope = block.to_scope(ScopeType::Block, pointer.variables.clone());
                     pointer.idx += 1;
-                    stack.push(scope);
+                    stack.push(Rc::new(RefCell::new(scope)));
                     continue 'stack;
                 }
             }
@@ -223,7 +227,9 @@ fn run_root<'a>(
                 incrementor,
             } => {
                 run_root(
-                    incrementor.to_scope(ScopeType::Block, pointer.variables.clone()),
+                    Rc::new(RefCell::new(
+                        incrementor.to_scope(ScopeType::Block, pointer.variables.clone()),
+                    )),
                     functions,
                     input,
                 );
@@ -258,12 +264,13 @@ impl<'a> Scope<'a> {
         expression: &Vec<ExpressionFragment>,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) -> Value<'a> {
         let mut vals: Vec<ExpressionVal> = expression
             .iter()
             .map(|f| match f {
                 ExpressionFragment::Op(op) => ExpressionVal::Op(op.clone()),
-                _ => ExpressionVal::Value(self.evaluate_fragment(f, functions, input)),
+                _ => ExpressionVal::Value(self.evaluate_fragment(f, functions, input, indexptr)),
             })
             .collect();
         let mut buffer: Value = match &vals[0] {
@@ -314,6 +321,7 @@ impl<'a> Scope<'a> {
         frag: &ExpressionFragment,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) -> Value<'a> {
         match frag {
             ExpressionFragment::Constant(c) => match c {
@@ -321,15 +329,15 @@ impl<'a> Scope<'a> {
                 Constant::String(s) => Value::String(s.clone()),
                 Constant::Number(n) => Value::Number(n.clone()),
             },
-            ExpressionFragment::Call(call) => self.eval_call(call, &functions, input),
+            ExpressionFragment::Call(call) => self.eval_call(call, &functions, input, indexptr),
             // ExpressionFragment::Name(name) => {
             //     self.variables.get(name).unwrap().borrow_mut().clone()
             // }
             ExpressionFragment::Expression(expr) => {
-                self.evaluate_expression(expr, functions, input)
+                self.evaluate_expression(expr, functions, input, indexptr)
             }
             ExpressionFragment::VarRef(vref) => self
-                .get_varref(vref.clone(), false, functions, input)
+                .get_varref(vref.clone(), false, functions, input, indexptr)
                 .borrow_mut()
                 .clone(),
             ExpressionFragment::Lambda(l) => Value::Lambda {
@@ -349,13 +357,14 @@ impl<'a> Scope<'a> {
         ptr: &mut Rc<RefCell<Value<'a>>>,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) {
         match func {
             Value::Lambda { takeself, func } => {
                 // TODO: make it not clone, use &mut references instead
                 let mut args: Vec<Value> = args
                     .iter()
-                    .map(|f| self.evaluate_expression(f, &functions, input))
+                    .map(|f| self.evaluate_expression(f, &functions, input, indexptr))
                     .collect();
                 let mut nargs = vec![];
                 let mut requiredargs = func.args.len();
@@ -366,14 +375,24 @@ impl<'a> Scope<'a> {
                 nargs.append(&mut args);
 
                 if nargs.len() != requiredargs {
-                    panic!("expected {} args, got {} args", requiredargs, nargs.len());
+                    rtexception(
+                        input,
+                        indexptr,
+                        "ArgumentException",
+                        &format!("expected {} args, got {} args", requiredargs, nargs.len()),
+                    );
                 }
 
                 *ptr = Rc::new(RefCell::new(
                     self.call_function(func, nargs, functions, input),
                 ))
             }
-            _ => panic!(),
+            _ => rtexception(
+                input,
+                indexptr,
+                "IncorrectTypeException",
+                "cannot call something that is not a function",
+            ),
         }
     }
     pub fn get_varref(
@@ -382,15 +401,17 @@ impl<'a> Scope<'a> {
         assign: bool,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) -> Rc<RefCell<Value<'a>>> {
-        let mut ptr = self.get_varref_root(varref.root, functions, input);
+        let mut ptr = self.get_varref_root(varref.root, functions, input, indexptr);
 
         for i in 0..varref.operations.len() {
             let op = &varref.operations[i];
             match op {
                 VarRefFragment::IndexInto(ind) => {
-                    let index =
-                        self.evaluate_expression(ind, functions, input).to_number() as usize;
+                    let index = self
+                        .evaluate_expression(ind, functions, input, indexptr)
+                        .to_number() as usize;
 
                     let ar = ptr.clone().borrow_mut().clone();
                     match ar {
@@ -405,7 +426,12 @@ impl<'a> Scope<'a> {
                             let tmp = ptr.borrow_mut().as_array()[index].clone();
                             ptr = tmp;
                         }
-                        _ => panic!("can only index into an array"),
+                        _ => rtexception(
+                            input,
+                            indexptr,
+                            "InvalidIndexException",
+                            "can only index into an array",
+                        ),
                     }
                 }
                 VarRefFragment::ObjectCall { name, args } => {
@@ -414,9 +440,14 @@ impl<'a> Scope<'a> {
                     match fields.get(name) {
                         Some(v) => {
                             let val = v.borrow_mut();
-                            self.call_lambda(&val, args, &mut ptr, functions, input);
+                            self.call_lambda(&val, args, &mut ptr, functions, input, indexptr);
                         }
-                        None => panic!(), // do later raise error if field isn't there
+                        None => exception(
+                            input,
+                            indexptr,
+                            "FieldNotFoundException",
+                            &format!("Object does not have a field named {}", name),
+                        ),
                     }
                 }
                 VarRefFragment::ObjectProperty(name) => {
@@ -441,7 +472,7 @@ impl<'a> Scope<'a> {
                 }
                 VarRefFragment::LambdaCall(l) => {
                     let mut fnc = ptr.clone().borrow_mut().clone();
-                    self.call_lambda(&mut fnc, l, &mut ptr, functions, input)
+                    self.call_lambda(&mut fnc, l, &mut ptr, functions, input, indexptr)
                 }
             }
         }
@@ -452,9 +483,12 @@ impl<'a> Scope<'a> {
         root: VarRefRoot,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) -> Rc<RefCell<Value<'a>>> {
         match root {
-            VarRefRoot::Call(c) => Rc::new(RefCell::new(self.eval_call(&c, functions, input))),
+            VarRefRoot::Call(c) => {
+                Rc::new(RefCell::new(self.eval_call(&c, functions, input, indexptr)))
+            }
             VarRefRoot::Variable(v) => self.variables.get(&v).unwrap().clone(),
         }
     }
@@ -463,12 +497,13 @@ impl<'a> Scope<'a> {
         call: &parser::Call,
         functions: &HashMap<String, RFunction>,
         input: &String,
+        indexptr: usize,
     ) -> Value<'a> {
         let rf = functions.get(&call.name).unwrap();
         let args: Vec<Value> = call
             .args
             .iter()
-            .map(|f| self.evaluate_expression(f, &functions, input))
+            .map(|f| self.evaluate_expression(f, &functions, input, indexptr))
             .collect();
         self.call_function(rf, args, functions, input)
     }
@@ -486,7 +521,7 @@ impl<'a> Scope<'a> {
                     passedargs.insert(argname.clone(), Rc::new(RefCell::new(args[i].clone())));
                 }
                 let nsc = func.source.to_scope(ScopeType::Function, passedargs);
-                run_root(nsc, functions, input)
+                run_root(Rc::new(RefCell::new(nsc)), functions, input)
             }
             FunctionType::ExternalFunction(func) => func(args),
         }

@@ -65,10 +65,9 @@ pub fn exceptionbuilder(input: &String, idx: usize, errtype: &str, message: &str
         offset += 1;
         i += 1;
     }
-    let allines: Vec<&str> = input.split('\n').collect();
+    let allines: Vec<&str> = input.lines().collect();
 
-    println!("{}", "-".repeat(offset + 9 + errtype.len()).red());
-    println!(
+    let line1 = format!(
         "      \"{}\"     {}",
         allines[lines].truecolor(255, 255, 255),
         format!(
@@ -77,14 +76,24 @@ pub fn exceptionbuilder(input: &String, idx: usize, errtype: &str, message: &str
             offset.to_string().truecolor(255, 255, 255)
         )
     );
-    println!(
-        "      {}{}      {}\n{} {}",
+    let line2 = format!(
+        "      {}{}      {}",
         " ".repeat(offset - 1),
         "^".bright_red(),
         errtype.purple().bold(),
+    );
+    let line3 = format!(
+        "{} {}",
         "ERROR:".red().bold(),
         message.bright_purple().bold()
     );
-    println!("{}", "-".repeat(offset + 9 + errtype.len()).red());
+
+    let dasheslen = line3.len() / 2;
+    // dbg!(dasheslen);
+    println!("{}", "-".repeat(dasheslen).red());
+    println!("{}", line1);
+    println!("{}", line2);
+    println!("{}", line3);
+    println!("{}", "-".repeat(dasheslen).red());
     panic!()
 }

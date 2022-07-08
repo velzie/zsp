@@ -19,11 +19,11 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         let contents = std::fs::read_to_string(Path::new(&args[1]))
-        .expect("could not read file")
-        .chars()
-        .filter(|c| c != &'\r')
-        .collect::<String>();
-        runtime::execute(contents);
+            .expect("could not read file")
+            .chars()
+            .filter(|c| c != &'\r')
+            .collect::<String>();
+        runtime::execute(contents, None);
     } else {
         tests::tests();
         // panic!("no file provided");

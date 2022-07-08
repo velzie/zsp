@@ -532,7 +532,7 @@ fn parse_block(
                         idx -= 1;
                     } else {
                         // it's an assign
-                        match &tokens[idx].symbol {
+                        match &tokens.sget(idx, vec![Symbol::Assign], input) {
                             Symbol::Assign => {
                                 idx += 1;
                                 let v = parse_args(
@@ -549,86 +549,15 @@ fn parse_block(
                                     index: tokens[idx - 1].index,
                                 });
                             }
-                            _ => todo!(),
+                            _ => old_unexpected_symbol_exception(
+                                input,
+                                idx,
+                                root.clone(),
+                                Symbol::Assign,
+                            ),
                         }
                     }
                 }
-                // root.children.push(Fragment{
-                //     frag: Frag::
-                //     index:tokens[idx-1].index
-                // });
-                //match funsyms.get(name) {
-                // Some(fnsym) => {
-                //     root.children.push(Fragment {
-                //         frag: Frag::Call(parse_fncall(
-                //             &tokens, &input, &funsyms, &root, &args, &mut idx, &fnsym,
-                //         )),
-                //         index: token.index,
-                //     });
-                // }
-                // None => {
-                //     // dbg!(&tokens[idx]);
-                //     idx += 1;
-                //     token = &tokens[idx];
-                //     // dbg!(&args);
-                //     match &token.symbol {
-                //         Symbol::IndexStart => {
-                //             idx += 1;
-                //             let arg = parse_args(tokens, input, funsyms, &root, &args, 1, &mut idx)
-                //                 [0]
-                //             .clone();
-                //             idx += 1;
-                //             dbg!(&tokens[idx]);
-                //             match &tokens[idx].symbol {
-                //                 Symbol::Assign => {
-                //                     idx += 1;
-                //                     let v = parse_args(
-                //                         &tokens, &input, &funsyms, &root, &args, 1, &mut idx,
-                //                     )[0]
-                //                     .clone();
-
-                //                     root.children.push(Fragment {
-                //                         frag: Frag::IndexAssignment {
-                //                             name: name.clone(),
-                //                             index: arg,
-                //                             value: v,
-                //                         },
-                //                         index: token.index,
-                //                     });
-
-                //                     idx -= 1;
-                //                 }
-                //                 _ => panic!("make this exception later"),
-                //             }
-                //         }
-                //         Symbol::Assign => {
-                //             idx += 1;
-                //             // dbg!(
-                //             //     &parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)
-                //             //         [0]
-                //             // );
-                //             let v =
-                //                 parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx)[0]
-                //                     .clone();
-                //             root.variables.push(name.to_string());
-                //             root.children.push(Fragment {
-                //                 frag: Frag::Assignment {
-                //                     name: name.clone(),
-                //                     value: v, // potentially unsafe code whatever
-                //                 },
-                //                 index: token.index,
-                //             });
-                //             idx -= 1;
-                //             // dbg!(&tokens[idx]);
-                //             // idx += 2;
-                //         }
-                //         _ => unexpected_name_exception(
-                //             &input,
-                //             tokens[idx - 1].index,
-                //             tokens[idx - 1].symbol.clone(),
-                //         ),
-                //     }
-                // }
             }
             Symbol::BlockStart => {
                 let endidx =
