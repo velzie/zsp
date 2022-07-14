@@ -11,4 +11,6 @@ fooconstructor {
 instance_of_foo = fooconstructor
 
 instance_of_foo:increment(instance_of_foo)
-put instance_of_foo:val
+
+instance_of_foo:increment(instance_of_foo)
+assert instance_of_foo:val 2

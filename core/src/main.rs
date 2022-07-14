@@ -23,7 +23,10 @@ fn main() {
             .chars()
             .filter(|c| c != &'\r')
             .collect::<String>();
-        runtime::execute(contents, None);
+        match runtime::execute(&contents, None) {
+            Err(e) => println!("{}", e.fmt(&contents)),
+            _ => (),
+        };
     } else {
         tests::tests();
         // panic!("no file provided");

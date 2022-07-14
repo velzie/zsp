@@ -1,15 +1,10 @@
-use std::{
-    borrow::Borrow, cell::RefCell, collections::HashMap, fmt::Debug, fs, path::Path, rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 use crate::{
-    builtins::{self, functions},
-    exceptions::{exception, rtexception},
+    builtins,
+    exceptions::Exception,
     lexer::{self, Op},
-    parser::{
-        self, Block, Constant, ExpressionFragment, Frag, Fragment, Function, Root, VarRef,
-        VarRefFragment, VarRefRoot,
-    },
+    parser::{self, Block, Constant, ExpressionFragment, Frag, VarRef, VarRefFragment, VarRefRoot},
 };
 
 // inp structure ideas:
@@ -26,10 +21,13 @@ use crate::{
 //3. pointers
 
 // run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
-pub fn execute<'a>(input: String, envfncs: Option<HashMap<String, RFunction>>) {
+pub fn execute<'a>(
+    input: &String,
+    envfncs: Option<HashMap<String, RFunction>>,
+) -> Result<(), Exception> {
     let mut tokens = lexer::lex(input.clone());
     // println!("{:?}", tokens);
-    let libnames = parser::find_loads(&mut tokens, &input);
+    let libnames = parser::find_loads(&mut tokens)?;
 
     let mut libraryfunctions = HashMap::new();
 
@@ -62,8 +60,8 @@ pub fn execute<'a>(input: String, envfncs: Option<HashMap<String, RFunction>>) {
             }
         }
     }
-    let root = parser::parse(tokens, &input, &libraryfunctions);
-    println!("{:?}", root);
+    let root = parser::parse(tokens, &input, &libraryfunctions)?;
+    // println!("{:?}", root);
 
     let mut functions = builtins::functions();
 
@@ -84,16 +82,17 @@ pub fn execute<'a>(input: String, envfncs: Option<HashMap<String, RFunction>>) {
     let rootscope = Rc::new(RefCell::new(
         root.root.to_scope(ScopeType::Function, HashMap::new()),
     ));
-    run_root(rootscope, &functions, &input);
+    run_root(rootscope, &functions, &input)?;
 
     // rootscope.call_function(&functions.get("draw").unwrap(), vec![], &functions, &input);
+    Ok(())
 }
 
 pub fn run_root<'a>(
     root: Rc<RefCell<Scope<'a>>>,
     functions: &HashMap<String, RFunction>,
     input: &String,
-) -> Value<'a> {
+) -> Result<Value<'a>, Exception> {
     let mut stack: Vec<Rc<RefCell<Scope>>> = vec![];
     stack.push(root);
     'stack: while stack.len() > 0 {
@@ -105,7 +104,7 @@ pub fn run_root<'a>(
                 incrementor: _,
             } => {
                 if !pointer
-                    .evaluate_expression(condition, &functions, input, 0)
+                    .evaluate_expression(condition, &functions, input, 0)?
                     .to_bool()
                 {
                     stack.pop();
@@ -134,7 +133,7 @@ pub fn run_root<'a>(
                         pointer.variables.clone(),
                     );
                     let v = Rc::new(RefCell::new(
-                        pointer.evaluate_expression(initial, &functions, input, frag.index),
+                        pointer.evaluate_expression(initial, &functions, input, frag.index)?,
                     ));
                     scope.variables.insert(name.clone(), v);
                     pointer.idx += 1;
@@ -147,7 +146,7 @@ pub fn run_root<'a>(
                     falseblock,
                 } => {
                     if pointer
-                        .evaluate_expression(&condition, functions, input, frag.index)
+                        .evaluate_expression(&condition, functions, input, frag.index)?
                         .to_bool()
                     {
                         pointer.idx += 1;
@@ -163,22 +162,25 @@ pub fn run_root<'a>(
                 }
                 Frag::Call(call) => {
                     // note: this will evaluate the call. i would prefer it to be a little more explicit but that would just mean repeating code i already wrote
-                    pointer.get_varref(call.clone(), false, functions, input, frag.index);
+                    pointer.get_varref(call.clone(), false, functions, input, frag.index)?;
                 }
                 Frag::Assignment { variable, value } => {
+                    // dbg!(pointer
+                    //     .get_varref(variable.clone(), true, functions, input, frag.index)
+                    //     .borrow_mut());
                     *pointer
-                        .get_varref(variable.clone(), true, functions, input, frag.index)
+                        .get_varref(variable.clone(), true, functions, input, frag.index)?
                         .borrow_mut() =
-                        pointer.evaluate_expression(&value, functions, input, frag.index);
+                        pointer.evaluate_expression(&value, functions, input, frag.index)?;
                 }
                 Frag::Initialize { variable, value } => {
                     let v = pointer.evaluate_expression(&value, functions, input, frag.index);
                     pointer
                         .variables
-                        .insert(variable.clone(), Rc::new(RefCell::new(v)));
+                        .insert(variable.clone(), Rc::new(RefCell::new(v?)));
                 }
                 Frag::Return(exp) => {
-                    return pointer.evaluate_expression(&exp, functions, input, frag.index);
+                    return Ok(pointer.evaluate_expression(&exp, functions, input, frag.index)?);
                 }
                 Frag::Break => {
                     let idx = frag.index.clone();
@@ -192,12 +194,13 @@ pub fn run_root<'a>(
                         Some(_) => {
                             // idx += 1;
                         }
-                        None => rtexception(
-                            &String::from("input"),
-                            idx,
-                            "InvalidBreakException",
-                            "you can only break in a loop. this doesn't look like a loop",
-                        ),
+                        None => {
+                            return Err(Exception::new(
+                                idx,
+                                "InvalidBreakException",
+                                "you can only break in a loop. this doesn't look like a loop",
+                            ))
+                        }
                     };
                     // frag.clone();
                     continue 'stack;
@@ -232,7 +235,7 @@ pub fn run_root<'a>(
                     )),
                     functions,
                     input,
-                );
+                )?;
                 pointer.idx = 0;
             }
             _ => {
@@ -241,7 +244,7 @@ pub fn run_root<'a>(
         }
         // pop stack
     }
-    Value::Null
+    Ok(Value::Null)
 }
 
 impl<'a> Block {
@@ -265,14 +268,14 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) -> Value<'a> {
-        let mut vals: Vec<ExpressionVal> = expression
-            .iter()
-            .map(|f| match f {
+    ) -> Result<Value<'a>, Exception> {
+        let mut vals = vec![];
+        for f in expression {
+            vals.push(match f {
                 ExpressionFragment::Op(op) => ExpressionVal::Op(op.clone()),
-                _ => ExpressionVal::Value(self.evaluate_fragment(f, functions, input, indexptr)),
+                _ => ExpressionVal::Value(self.evaluate_fragment(f, functions, input, indexptr)?),
             })
-            .collect();
+        }
         let mut buffer: Value = match &vals[0] {
             ExpressionVal::Value(v) => v.clone(),
             _ => panic!(),
@@ -313,7 +316,7 @@ impl<'a> Scope<'a> {
 
         // todo: implement order of operations, or at least ()
 
-        buffer
+        Ok(buffer)
         // self.evaluate_fragment(&expression[0], functions)
     }
     pub fn evaluate_fragment(
@@ -322,50 +325,60 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) -> Value<'a> {
+    ) -> Result<Value<'a>, Exception> {
         match frag {
             ExpressionFragment::Constant(c) => match c {
-                Constant::Bool(b) => Value::Bool(b.clone()),
-                Constant::String(s) => Value::String(s.clone()),
-                Constant::Number(n) => Value::Number(n.clone()),
+                Constant::Bool(b) => Ok(Value::Bool(b.clone())),
+                Constant::String(s) => Ok(Value::String(s.clone())),
+                Constant::Number(n) => Ok(Value::Number(n.clone())),
             },
             ExpressionFragment::Call(call) => self.eval_call(call, &functions, input, indexptr),
             // ExpressionFragment::Name(name) => {
             //     self.variables.get(name).unwrap().borrow_mut().clone()
             // }
             ExpressionFragment::Expression(expr) => {
-                self.evaluate_expression(expr, functions, input, indexptr)
+                Ok(self.evaluate_expression(expr, functions, input, indexptr)?)
             }
-            ExpressionFragment::VarRef(vref) => self
-                .get_varref(vref.clone(), false, functions, input, indexptr)
-                .borrow_mut()
-                .clone(),
-            ExpressionFragment::Lambda(l) => Value::Lambda {
+            ExpressionFragment::VarRef(vref) => {
+                let vref = self.get_varref(vref.clone(), false, functions, input, indexptr)?;
+                let cloned = vref.clone().borrow_mut().clone();
+                Ok(match cloned {
+                    Value::Object(_) | Value::DynObject(_) => Value::Reference(vref), // passes by references
+                    _ => cloned, // else passes by value
+                })
+            }
+            ExpressionFragment::Lambda(l) => Ok(Value::Lambda {
                 takeself: false,
                 func: RFunction {
                     args: l.args.clone(),
                     func: FunctionType::InternalFunction(l.clone()),
                 },
-            },
-            _ => panic!(),
+            }),
+            ExpressionFragment::Op(_)=>{
+                return Err(Exception::new(
+                    indexptr,
+                    "UnreachableUnexpectedSymbolException",
+                    "Cannot use an operator (+,-,/,*,etc...) in an expression fragment. this shouldn't be reachable unless either you or i messed up really badly",
+                ))
+            }
         }
     }
     pub fn call_lambda(
         &self,
         func: &Value,
-        args: &Vec<Vec<ExpressionFragment>>,
+        expargs: &Vec<Vec<ExpressionFragment>>,
         ptr: &mut Rc<RefCell<Value<'a>>>,
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) {
+    ) -> Result<(), Exception> {
         match func {
             Value::Lambda { takeself, func } => {
                 // TODO: make it not clone, use &mut references instead
-                let mut args: Vec<Value> = args
-                    .iter()
-                    .map(|f| self.evaluate_expression(f, &functions, input, indexptr))
-                    .collect();
+                let mut args = vec![];
+                for arg in expargs {
+                    args.push(self.evaluate_expression(arg, &functions, input, indexptr)?);
+                }
                 let mut nargs = vec![];
                 let mut requiredargs = func.args.len();
                 if *takeself {
@@ -375,24 +388,25 @@ impl<'a> Scope<'a> {
                 nargs.append(&mut args);
 
                 if nargs.len() != requiredargs {
-                    rtexception(
-                        input,
+                    return Err(Exception::new(
                         indexptr,
                         "ArgumentException",
                         &format!("expected {} args, got {} args", requiredargs, nargs.len()),
-                    );
+                    ));
                 }
 
                 *ptr = Rc::new(RefCell::new(
-                    self.call_function(func, nargs, functions, input),
-                ))
+                    self.call_function(func, nargs, functions, input)?,
+                ));
+                Ok(())
             }
-            _ => rtexception(
-                input,
-                indexptr,
-                "IncorrectTypeException",
-                "cannot call something that is not a function",
-            ),
+            _ => {
+                return Err(Exception::new(
+                    indexptr,
+                    "IncorrectTypeException",
+                    "cannot call something that is not a function",
+                ));
+            }
         }
     }
     pub fn get_varref(
@@ -402,15 +416,14 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) -> Rc<RefCell<Value<'a>>> {
-        let mut ptr = self.get_varref_root(varref.root, functions, input, indexptr);
-
+    ) -> Result<Rc<RefCell<Value<'a>>>, Exception> {
+        let mut ptr = self.get_varref_root(varref.root, functions, input, indexptr)?;
         for i in 0..varref.operations.len() {
             let op = &varref.operations[i];
             match op {
                 VarRefFragment::IndexInto(ind) => {
                     let index = self
-                        .evaluate_expression(ind, functions, input, indexptr)
+                        .evaluate_expression(ind, functions, input, indexptr)?
                         .to_number() as usize;
 
                     let ar = ptr.clone().borrow_mut().clone();
@@ -426,12 +439,13 @@ impl<'a> Scope<'a> {
                             let tmp = ptr.borrow_mut().as_array()[index].clone();
                             ptr = tmp;
                         }
-                        _ => rtexception(
-                            input,
-                            indexptr,
-                            "InvalidIndexException",
-                            "can only index into an array",
-                        ),
+                        _ => {
+                            return Err(Exception::new(
+                                indexptr,
+                                "InvalidIndexException",
+                                "can only index into an array",
+                            ))
+                        }
                     }
                 }
                 VarRefFragment::ObjectCall { name, args } => {
@@ -440,17 +454,23 @@ impl<'a> Scope<'a> {
                     match fields.get(name) {
                         Some(v) => {
                             let val = v.borrow_mut();
-                            self.call_lambda(&val, args, &mut ptr, functions, input, indexptr);
+                            self.call_lambda(&val, args, &mut ptr, functions, input, indexptr)?;
                         }
-                        None => exception(
-                            input,
-                            indexptr,
-                            "FieldNotFoundException",
-                            &format!("Object does not have a field named {}", name),
-                        ),
+                        None => {
+                            return Err(Exception::new(
+                                indexptr,
+                                "FieldNotFoundException",
+                                &format!("Object does not have a field named {}", name),
+                            ))
+                        }
                     }
                 }
                 VarRefFragment::ObjectProperty(name) => {
+                    let mut tmp = ptr.borrow_mut().clone();
+                    match &tmp {
+                        Value::Reference(_) => ptr = tmp.as_ref().clone(), // automatic derefing.
+                        _ => (),
+                    }
                     let fields = ptr.borrow_mut().fields();
                     match fields.get(name) {
                         Some(v) => {
@@ -463,20 +483,17 @@ impl<'a> Scope<'a> {
                                 let val = Rc::new(RefCell::new(Value::Null));
                                 ptrref.as_object().fields.insert(name.clone(), val.clone());
                                 ptr = val;
-                            } else {
-
-                                // panic!("do later: make dynobjs work with this i think")
                             };
                         }
                     }
                 }
                 VarRefFragment::LambdaCall(l) => {
                     let mut fnc = ptr.clone().borrow_mut().clone();
-                    self.call_lambda(&mut fnc, l, &mut ptr, functions, input, indexptr)
+                    self.call_lambda(&mut fnc, l, &mut ptr, functions, input, indexptr)?
                 }
             }
         }
-        ptr
+        Ok(ptr)
     }
     pub fn get_varref_root(
         &self,
@@ -484,12 +501,25 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) -> Rc<RefCell<Value<'a>>> {
+    ) -> Result<Rc<RefCell<Value<'a>>>, Exception> {
         match root {
-            VarRefRoot::Call(c) => {
-                Rc::new(RefCell::new(self.eval_call(&c, functions, input, indexptr)))
-            }
-            VarRefRoot::Variable(v) => self.variables.get(&v).unwrap().clone(),
+            VarRefRoot::Call(c) => match self.eval_call(&c, functions, input, indexptr) {
+                Ok(u) => Ok(Rc::new(RefCell::new(u))),
+                Err(e) => return Err(e),
+            },
+            VarRefRoot::Variable(v) => match self.variables.get(&v) {
+                Some(s) => Ok(s.clone()),
+                None => {
+                    return Err(Exception::new(
+                        indexptr,
+                        "VariableNotFoundException",
+                        &format!(
+                            "variable with name {} was not found in the current scope",
+                            &v
+                        ),
+                    ))
+                }
+            },
         }
     }
     pub fn eval_call(
@@ -498,13 +528,12 @@ impl<'a> Scope<'a> {
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
-    ) -> Value<'a> {
+    ) -> Result<Value<'a>, Exception> {
         let rf = functions.get(&call.name).unwrap();
-        let args: Vec<Value> = call
-            .args
-            .iter()
-            .map(|f| self.evaluate_expression(f, &functions, input, indexptr))
-            .collect();
+        let mut args = vec![];
+        for arg in &call.args {
+            args.push(self.evaluate_expression(&arg, &functions, input, indexptr)?);
+        }
         self.call_function(rf, args, functions, input)
     }
     pub fn call_function(
@@ -513,7 +542,7 @@ impl<'a> Scope<'a> {
         args: Vec<Value<'a>>,
         functions: &HashMap<String, RFunction>,
         input: &String,
-    ) -> Value<'a> {
+    ) -> Result<Value<'a>, Exception> {
         match &rf.func {
             FunctionType::InternalFunction(func) => {
                 let mut passedargs = self.variables.clone();
@@ -575,7 +604,6 @@ pub enum ScopeType {
 }
 // not deriving partialeq here because of weird dyn object stuff
 #[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
 pub enum Value<'a> {
     String(String),
     Number(f32),
@@ -585,8 +613,8 @@ pub enum Value<'a> {
     Object(Object<'a>),
     Lambda { takeself: bool, func: RFunction },
     DynObject(DynObjectContainer<'a>),
+    Reference(Rc<RefCell<Value<'a>>>),
 }
-
 /// 2 categories
 /// primitives and objects
 // struct StringValue {
@@ -633,6 +661,7 @@ impl<'a> Value<'a> {
                 func: _,
             } => HashMap::new(),
             Value::DynObject(o) => o.val.fields(),
+            Value::Reference(r) => r.borrow_mut().fields(),
         }
     }
     pub fn cast(&self, vtype: Value<'a>) -> Value<'a> {
@@ -702,9 +731,21 @@ impl<'a> Value<'a> {
             _ => false,
         }
     }
+    pub fn as_ref(&mut self) -> &mut Rc<RefCell<Value<'a>>> {
+        match self {
+            Value::Reference(r) => r,
+            _ => unreachable!(),
+        }
+    }
     pub fn as_object(&mut self) -> &mut Object<'a> {
         match self {
             Value::Object(v) => v,
+            _ => unreachable!(),
+        }
+    }
+    pub fn as_dyn_object(&mut self) -> &mut DynObjectContainer<'a> {
+        match self {
+            Value::DynObject(v) => v,
             _ => unreachable!(),
         }
     }
@@ -735,7 +776,7 @@ impl<'a> Value<'a> {
 }
 #[derive(Debug, Clone)]
 pub struct Library<'a> {
-    pub func: fn(Vec<Value<'a>>) -> Value<'a>,
+    pub func: fn(Vec<Value<'a>>) -> Result<Value<'a>, Exception>,
 }
 
-type Extfn = fn(Vec<Value>) -> Value;
+type Extfn = fn(Vec<Value>) -> Result<Value, Exception>;

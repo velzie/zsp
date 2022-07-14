@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use zsp_core::exceptions::Exception;
 use zsp_core::func;
 use zsp_core::runtime::{DynObject, DynObjectContainer, FunctionType, RFunction, Value};
 #[no_mangle]
@@ -9,13 +10,13 @@ pub fn lib() -> HashMap<String, RFunction> {
 }
 
 #[no_mangle]
-pub fn celesteobj<'a>(inp: Vec<Value<'a>>) -> Value<'a> {
-    Value::DynObject(DynObjectContainer {
+pub fn celesteobj<'a>(inp: Vec<Value<'a>>) -> Result<Value<'a>, Exception> {
+    Ok(Value::DynObject(DynObjectContainer {
         val: Box::new(Celeste {
             mem: "adsad".into(),
             val: 1,
         }),
-    })
+    }))
 }
 
 #[derive(Debug, Clone)]

@@ -1,9 +1,4 @@
 use crate::parser::Constant;
-#[allow(unused_variables)]
-#[allow(dead_code)]
-// #[feature(once_cell)]
-// use std::lazy;
-use crate::parser::ExpressionFragment;
 use std::collections::HashMap;
 
 macro_rules! mk {
@@ -29,6 +24,7 @@ lazy_static! {
         (']', Some(Symbol::IndexEnd)),
         (':', Some(Symbol::IndexObject)),
         ('|', Some(Symbol::Lambda)),
+        ('@', Some(Symbol::Reference)),
     ]);
     static ref KEYWORDS: HashMap<String, Symbol> = HashMap::from([
         mk!("if", Symbol::If),
@@ -151,6 +147,7 @@ pub enum Symbol {
     IndexEnd,
     IndexObject,
     Lambda,
+    Reference,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
@@ -184,6 +181,6 @@ impl Symbol {
                 return k.to_string();
             }
         }
-        return "(Name)".into()
+        return "(Name)".into();
     }
 }

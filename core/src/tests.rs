@@ -28,8 +28,13 @@ pub fn tests() {
             .chars()
             .filter(|c| c != &'\r')
             .collect::<String>();
-        execute(contents, None);
-        println!("{}", "passed test!".green());
+        match execute(&contents, None) {
+            Err(e) => {
+                println!("{}", e.fmt(&contents));
+                panic!("{}", "FALIED TEST".red())
+            }
+            Ok(_) => println!("{}", "passed test!".green()),
+        };
     }
 
     println!("passed tests!");
