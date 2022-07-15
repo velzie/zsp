@@ -30,7 +30,7 @@ pub fn execute<'a>(
     let libnames = parser::find_loads(&mut tokens)?;
 
     let mut libraryfunctions = HashMap::new();
-
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     for ln in libnames {
         unsafe {
             let lib = Box::leak(Box::new(
@@ -53,11 +53,6 @@ pub fn execute<'a>(
             for (k, v) in libinfo.into_iter() {
                 libraryfunctions.insert(k, v);
             }
-            if let Some(ext) = envfncs.clone() {
-                for (k, v) in ext.into_iter() {
-                    libraryfunctions.insert(k, v);
-                }
-            }
         }
     }
     let root = parser::parse(tokens, &input, &libraryfunctions)?;
@@ -65,6 +60,11 @@ pub fn execute<'a>(
 
     let mut functions = builtins::functions();
 
+    if let Some(ext) = envfncs.clone() {
+        for (k, v) in ext.into_iter() {
+            libraryfunctions.insert(k, v);
+        }
+    }
     for (k, v) in libraryfunctions {
         functions.insert(k.clone(), v.clone());
     }
@@ -96,8 +96,8 @@ pub fn run_root<'a>(
     let mut stack: Vec<Rc<RefCell<Scope>>> = vec![];
     stack.push(root);
     'stack: while stack.len() > 0 {
-        let tmp = stack.last_mut().unwrap().clone();
-        let mut pointer = tmp.borrow_mut();
+        let pointerc = stack.last_mut().unwrap().clone();
+        let mut pointer = pointerc.borrow_mut();
         match &pointer.scopetype {
             ScopeType::For {
                 condition,
@@ -115,7 +115,7 @@ pub fn run_root<'a>(
         }
         while pointer.idx < pointer.structure.children.len() {
             // dbg!(&pointer);
-            let frag = &pointer.clone().structure.children[pointer.idx];
+            let frag = &pointer.structure.children[pointer.idx].clone();
 
             match &frag.frag {
                 Frag::For {
@@ -162,14 +162,14 @@ pub fn run_root<'a>(
                 }
                 Frag::Call(call) => {
                     // note: this will evaluate the call. i would prefer it to be a little more explicit but that would just mean repeating code i already wrote
-                    pointer.get_varref(call.clone(), false, functions, input, frag.index)?;
+                    pointer.get_varref(call, false, functions, input, frag.index)?;
                 }
                 Frag::Assignment { variable, value } => {
                     // dbg!(pointer
                     //     .get_varref(variable.clone(), true, functions, input, frag.index)
                     //     .borrow_mut());
                     *pointer
-                        .get_varref(variable.clone(), true, functions, input, frag.index)?
+                        .get_varref(variable, true, functions, input, frag.index)?
                         .borrow_mut() =
                         pointer.evaluate_expression(&value, functions, input, frag.index)?;
                 }
@@ -340,7 +340,7 @@ impl<'a> Scope<'a> {
                 Ok(self.evaluate_expression(expr, functions, input, indexptr)?)
             }
             ExpressionFragment::VarRef(vref) => {
-                let vref = self.get_varref(vref.clone(), false, functions, input, indexptr)?;
+                let vref = self.get_varref(vref, false, functions, input, indexptr)?;
                 let cloned = vref.clone().borrow_mut().clone();
                 Ok(match cloned {
                     Value::Object(_) | Value::DynObject(_) => Value::Reference(vref), // passes by references
@@ -411,13 +411,13 @@ impl<'a> Scope<'a> {
     }
     pub fn get_varref(
         &self,
-        varref: VarRef,
+        varref: &VarRef,
         assign: bool,
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
     ) -> Result<Rc<RefCell<Value<'a>>>, Exception> {
-        let mut ptr = self.get_varref_root(varref.root, functions, input, indexptr)?;
+        let mut ptr = self.get_varref_root(&varref.root, functions, input, indexptr)?;
         for i in 0..varref.operations.len() {
             let op = &varref.operations[i];
             match op {
@@ -488,7 +488,8 @@ impl<'a> Scope<'a> {
                     }
                 }
                 VarRefFragment::LambdaCall(l) => {
-                    let mut fnc = ptr.clone().borrow_mut().clone();
+                    let tmp = ptr.clone();
+                    let mut fnc = tmp.borrow_mut();
                     self.call_lambda(&mut fnc, l, &mut ptr, functions, input, indexptr)?
                 }
             }
@@ -497,7 +498,7 @@ impl<'a> Scope<'a> {
     }
     pub fn get_varref_root(
         &self,
-        root: VarRefRoot,
+        root: &VarRefRoot,
         functions: &HashMap<String, RFunction>,
         input: &String,
         indexptr: usize,
@@ -507,7 +508,7 @@ impl<'a> Scope<'a> {
                 Ok(u) => Ok(Rc::new(RefCell::new(u))),
                 Err(e) => return Err(e),
             },
-            VarRefRoot::Variable(v) => match self.variables.get(&v) {
+            VarRefRoot::Variable(v) => match self.variables.get(v) {
                 Some(s) => Ok(s.clone()),
                 None => {
                     return Err(Exception::new(
@@ -602,7 +603,6 @@ pub enum ScopeType {
         incrementor: Block,
     },
 }
-// not deriving partialeq here because of weird dyn object stuff
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value<'a> {
     String(String),
@@ -615,13 +615,10 @@ pub enum Value<'a> {
     DynObject(DynObjectContainer<'a>),
     Reference(Rc<RefCell<Value<'a>>>),
 }
-/// 2 categories
-/// primitives and objects
-// struct StringValue {
-//     value: String,
-//     functions:
-// }
-
+pub fn downcast_dyn<'a, T>(u: &mut DynObjectContainer) -> &'a mut T {
+    unsafe { &mut *(&mut *u.val as *mut dyn DynObject as *mut T) }
+    // don't ask. please don't ask
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct Object<'a> {
     pub fields: HashMap<String, Rc<RefCell<Value<'a>>>>,

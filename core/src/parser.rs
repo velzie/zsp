@@ -870,7 +870,11 @@ pub struct ConditionalBlock {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frag {
-    If(Vec<ConditionalBlock>),
+    If {
+        condition: Expression,
+        trueblock: Block,
+        falseblock: Option<Block>,
+    },
     For {
         name: String,
         initial: Expression,

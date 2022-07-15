@@ -1,2 +1,2 @@
 [workspace]
-members = ["macros","std","core"]
+members = ["playground","std","core"]

@@ -136,9 +136,9 @@ checksum = "f3f6f92acf49d1b98f7a81226834412ada05458b7364277387724a237f062695"
 
 [[package]]
 name = "serde"
-version = "1.0.137"
+version = "1.0.139"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ea8d54c77f8315140a05f4c7237403bf38b72704d031543aa1d16abbf517d1"
+checksum = "0171ebb889e45aa68b44aee0859b3eede84c6f5f5c228e6f140c0b2a0a46cad6"
 
 [[package]]
 name = "serde_json"
@@ -284,7 +284,12 @@ dependencies = [
  "serde_json",
  "substring",
  "termcolor",
+ "zsp-macros",
 ]
+
+[[package]]
+name = "zsp-macros"
+version = "0.1.0"
 
 [[package]]
 name = "zsp-playground"
@@ -292,14 +297,5 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "wasm-bindgen",
- "zsp-core",
-]
-
-[[package]]
-name = "zsp-std"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
  "zsp-core",
 ]

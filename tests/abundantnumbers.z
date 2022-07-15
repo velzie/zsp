@@ -10,7 +10,7 @@ mod a b{
 is_whole num{
     return (mod num 1) == 0
 }
-for a 1 a < 200 a = a + 1{
+for a 1 a < 100 a = a + 1{
     divisors = array
     for d 1 d < a d = d + 1{
         if is_whole (a / d){
