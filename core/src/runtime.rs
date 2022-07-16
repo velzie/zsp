@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, fs, path::Path, rc::Rc};
+
+use home::home_dir;
 
 use crate::{
     builtins,
@@ -33,14 +35,13 @@ pub fn execute<'a>(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     for ln in libnames {
         unsafe {
+            let pathv = format!("{}/.zsp", home_dir().unwrap().display());
+            let zspdir = Path::new(&pathv);
+            fs::create_dir_all(zspdir).unwrap();
             let lib = Box::leak(Box::new(
                 libloading::Library::new(format!(
                     "{}/{}",
-                    std::env::current_dir()
-                        .unwrap()
-                        .as_os_str()
-                        .to_str()
-                        .unwrap(),
+                    pathv,
                     ln //+ .dll or .so
                 ))
                 .unwrap(),
@@ -341,10 +342,11 @@ impl<'a> Scope<'a> {
             }
             ExpressionFragment::VarRef(vref) => {
                 let vref = self.get_varref(vref, false, functions, input, indexptr)?;
-                let cloned = vref.clone().borrow_mut().clone();
-                Ok(match cloned {
+                let tmp = vref.clone();
+                let deref = tmp.borrow_mut();
+                Ok(match *deref {
                     Value::Object(_) | Value::DynObject(_) => Value::Reference(vref), // passes by references
-                    _ => cloned, // else passes by value
+                    _ => deref.clone(), // else passes by value
                 })
             }
             ExpressionFragment::Lambda(l) => Ok(Value::Lambda {

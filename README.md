@@ -6,9 +6,10 @@ The documentation for the language and guide is on the wiki, here is just a basi
 ZSP stands for "ZSP is Superior to Python", because I wanted one of those fancy recursive acryonyms and I couldn't come up with a better name
 
  
-## running the program
-first either clone the repo and use `cargo run` or download a binary from releases and call that
-save the file with the extension .z, and then run the program with the path to the file as the argument
+## getting started
+You can download the interpreter and use all the features, or if you just want to play around, there's a [web interpreter](https://coolelectronics.me/playground/) available
+
+If you decide to use the native interpreter, it will create a .zsp folder in your home directory where libraries will be loaded upon first run. If you want to use a library such as the `fs` or `dlopen` libraries, you will need to put the shared object there.
 
 ## features
 supported:  

@@ -546,7 +546,7 @@ fn parse_block(
                                         variable: vref,
                                         value: v,
                                     },
-                                    index: tokens[idx - 1].index,
+                                    index: tokens[idx - 2].index,
                                 });
                             }
                             _ => {

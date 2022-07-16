@@ -1,2 +1,2 @@
 [workspace]
-members = ["playground","std","core"]
+members = ["playground","libraries/fs","libraries/http","core"]
