@@ -14,8 +14,7 @@ pub fn parse(
     input: &String,
     funcs: &HashMap<String, RFunction>,
 ) -> Result<Root, Exception> {
-    let mut tokens = tkns.clone();
-
+    let mut tokens = tkns;
     let mut funsyms = HashMap::new();
     for f in funcs {
         funsyms.insert(
@@ -39,9 +38,9 @@ pub fn parse(
     }
     make_funsyms(&mut tokens, &mut funsyms)?;
 
-    let rootblock = parse_block(&tokens, &input, &funsyms, None, &vec![], 0, tokens.len())?;
+    let rootblock = parse_block(&tokens, input, &funsyms, None, &vec![], 0, tokens.len())?;
 
-    let functions = make_functions(&funsyms, &input, &rootblock)?;
+    let functions = make_functions(&funsyms, input, &rootblock)?;
     Ok(Root {
         root: rootblock,
         functions,
@@ -61,7 +60,7 @@ fn make_functions(
                     Function {
                         args: sym.1.args.clone(),
                         source: parse_block(
-                            &source,
+                            source,
                             input,
                             funsyms,
                             Some(scope),
@@ -119,7 +118,7 @@ fn make_funsyms(
                             match &tokens[idx].symbol.clone() {
                                 Symbol::BlockStart => {
                                     idx = next_symbol_block(
-                                        &tokens,
+                                        tokens,
                                         idx,
                                         Symbol::BlockStart,
                                         Symbol::BlockEnd,
@@ -134,7 +133,7 @@ fn make_funsyms(
                                         FunSym {
                                             name: funcname.to_string(),
                                             source: Some(tkns),
-                                            args: args,
+                                            args,
                                         },
                                     );
                                     break;
@@ -156,7 +155,7 @@ fn make_funsyms(
                 idx += 1;
                 // let endx =
                 // next_symbol_block(&tokens, &input, idx, Symbol::BlockStart, Symbol::BlockEnd);
-                let endx = next_symbol(&tokens, idx, Symbol::BlockEnd)?;
+                let endx = next_symbol(tokens, idx, Symbol::BlockEnd)?;
                 //WARNGIN : WILL ACT WEIRDLY ON NESTED IF BLOCKS. SHOULDN"T MATTER
                 idx = endx;
             }
@@ -206,7 +205,7 @@ fn parse_args(
     argslen: usize,
     idx: &mut usize,
 ) -> Result<Vec<Expression>, Exception> {
-    let start = idx.clone();
+    let start = *idx;
     let mut args: Vec<Expression> = vec![];
     // fix this its brokeen
     // keep running this code until every required argument has been captured
@@ -265,7 +264,7 @@ fn parse_args(
                                 let block =
                                     parse_block(tokens, input, funsyms, None, &args, *idx, endidx)?;
                                 exp.push(ExpressionFragment::Lambda(Function {
-                                    args: args,
+                                    args,
                                     source: block,
                                 }));
                                 *idx = endidx;
@@ -280,18 +279,16 @@ fn parse_args(
                         }
                         *idx += 1;
                         const_valid = false;
+                    } else if args.len() < argslen {
+                        *idx -= 1;
+                        // move onto next argument
+                        break;
                     } else {
-                        if args.len() < argslen {
-                            *idx -= 1;
-                            // move onto next argument
-                            break;
-                        } else {
-                            return Err(Exception::unexpected_symbol(
-                                token.index,
-                                token.symbol.clone(),
-                                vec![Symbol::Lambda, Symbol::Name("".into())],
-                            ));
-                        }
+                        return Err(Exception::unexpected_symbol(
+                            token.index,
+                            token.symbol.clone(),
+                            vec![Symbol::Lambda, Symbol::Name("".into())],
+                        ));
                     }
                 }
                 Symbol::Op(o) => {
@@ -323,7 +320,7 @@ fn parse_args(
                 }
             }
         }
-        if exp.len() > 0 {
+        if !exp.is_empty()   {
             args.push(exp);
         } else {
             // dbg!("breaking");
@@ -347,7 +344,7 @@ fn parse_args(
 // panic!(split the arguments parser into a separate function);
 
 // returns the index of the next symbol
-fn next_symbol(tokens: &Vec<Token>, start: usize, end: Symbol) -> Result<usize, Exception> {
+fn next_symbol(tokens: &[Token], start: usize, end: Symbol) -> Result<usize, Exception> {
     let mut idx = start;
     loop {
         let token = &tokens[idx];
@@ -365,7 +362,7 @@ fn next_symbol(tokens: &Vec<Token>, start: usize, end: Symbol) -> Result<usize, 
     }
 }
 fn next_symbol_block(
-    tokens: &Vec<Token>,
+    tokens: &[Token],
     start: usize,
     addepth: Symbol,
     backdepth: Symbol,
@@ -421,13 +418,13 @@ fn parse_block(
             Symbol::If => {
                 idx += 1;
                 // panic!("replace this with a next_symbol_block");
-                let ifargs = parse_args(&tokens, &input, &funsyms, &root, &args, 1, &mut idx);
+                let ifargs = parse_args(tokens, input, funsyms, &root, args, 1, &mut idx);
                 idx += 1;
                 let ifendidx =
-                    next_symbol_block(&tokens, idx, Symbol::BlockStart, Symbol::BlockEnd)?;
+                    next_symbol_block(tokens, idx, Symbol::BlockStart, Symbol::BlockEnd)?;
 
                 let trueblock =
-                    parse_block(&tokens, &input, &funsyms, Some(&root), &args, idx, ifendidx)?;
+                    parse_block(tokens, input, &funsyms, Some(&root), &args, idx, ifendidx)?;
                 idx = ifendidx + 1;
 
                 let mut falseblock: Option<Block> = None;

@@ -23,7 +23,7 @@ use crate::{
 //3. pointers
 
 // run a loop with a linked list of pointer to the block, shift back one pointer when the block is exited, retain
-pub fn execute<'a>(
+pub fn execute(
     input: &String,
     envfncs: Option<HashMap<String, RFunction>>,
 ) -> Result<(), Exception> {
@@ -56,12 +56,12 @@ pub fn execute<'a>(
             }
         }
     }
-    let root = parser::parse(tokens, &input, &libraryfunctions)?;
+    let root = parser::parse(tokens, input, &libraryfunctions)?;
     // println!("{:?}", root);
 
     let mut functions = builtins::functions();
 
-    if let Some(ext) = envfncs.clone() {
+    if let Some(ext) = envfncs {
         for (k, v) in ext.into_iter() {
             libraryfunctions.insert(k, v);
         }
@@ -83,8 +83,8 @@ pub fn execute<'a>(
     let rootscope = Rc::new(RefCell::new(
         root.root.to_scope(ScopeType::Function, HashMap::new()),
     ));
-    run_root(rootscope, &functions, &input)?;
-
+    run_root(rootscope, &functions, input)?;
+    println!("ad");
     // rootscope.call_function(&functions.get("draw").unwrap(), vec![], &functions, &input);
     Ok(())
 }
@@ -94,25 +94,18 @@ pub fn run_root<'a>(
     functions: &HashMap<String, RFunction>,
     input: &String,
 ) -> Result<Value<'a>, Exception> {
-    let mut stack: Vec<Rc<RefCell<Scope>>> = vec![];
-    stack.push(root);
-    'stack: while stack.len() > 0 {
+    let mut stack: Vec<Rc<RefCell<Scope>>> = vec![root];
+    'stack: while !stack.is_empty() {
         let pointerc = stack.last_mut().unwrap().clone();
         let mut pointer = pointerc.borrow_mut();
-        match &pointer.scopetype {
-            ScopeType::For {
-                condition,
-                incrementor: _,
-            } => {
-                if !pointer
-                    .evaluate_expression(condition, &functions, input, 0)?
-                    .to_bool()
-                {
-                    stack.pop();
-                    continue 'stack;
-                }
+        if let ScopeType::For { condition, .. } = &pointer.scopetype {
+            if !pointer
+                .evaluate_expression(condition, functions, input, 0)?
+                .to_bool()
+            {
+                stack.pop();
+                continue 'stack;
             }
-            _ => (),
         }
         while pointer.idx < pointer.structure.children.len() {
             // dbg!(&pointer);
@@ -134,7 +127,7 @@ pub fn run_root<'a>(
                         pointer.variables.clone(),
                     );
                     let v = Rc::new(RefCell::new(
-                        pointer.evaluate_expression(initial, &functions, input, frag.index)?,
+                        pointer.evaluate_expression(initial, functions, input, frag.index)?,
                     ));
                     scope.variables.insert(name.clone(), v);
                     pointer.idx += 1;
@@ -147,7 +140,7 @@ pub fn run_root<'a>(
                     falseblock,
                 } => {
                     if pointer
-                        .evaluate_expression(&condition, functions, input, frag.index)?
+                        .evaluate_expression(condition, functions, input, frag.index)?
                         .to_bool()
                     {
                         pointer.idx += 1;
@@ -172,25 +165,22 @@ pub fn run_root<'a>(
                     *pointer
                         .get_varref(variable, true, functions, input, frag.index)?
                         .borrow_mut() =
-                        pointer.evaluate_expression(&value, functions, input, frag.index)?;
+                        pointer.evaluate_expression(value, functions, input, frag.index)?;
                 }
                 Frag::Initialize { variable, value } => {
-                    let v = pointer.evaluate_expression(&value, functions, input, frag.index);
+                    let v = pointer.evaluate_expression(value, functions, input, frag.index);
                     pointer
                         .variables
                         .insert(variable.clone(), Rc::new(RefCell::new(v?)));
                 }
                 Frag::Return(exp) => {
-                    return Ok(pointer.evaluate_expression(&exp, functions, input, frag.index)?);
+                    return pointer.evaluate_expression(exp, functions, input, frag.index);
                 }
                 Frag::Break => {
-                    let idx = frag.index.clone();
+                    let idx = frag.index;
                     match stack.clone().iter().rev().position(|f| {
                         stack.pop();
-                        match f.borrow_mut().scopetype {
-                            ScopeType::Loop => return true,
-                            _ => return false,
-                        }
+                        matches!(f.borrow_mut().scopetype, ScopeType::Loop)
                     }) {
                         Some(_) => {
                             // idx += 1;
@@ -203,7 +193,6 @@ pub fn run_root<'a>(
                             ))
                         }
                     };
-                    // frag.clone();
                     continue 'stack;
                 }
                 Frag::Loop(block) => {
@@ -329,11 +318,11 @@ impl<'a> Scope<'a> {
     ) -> Result<Value<'a>, Exception> {
         match frag {
             ExpressionFragment::Constant(c) => match c {
-                Constant::Bool(b) => Ok(Value::Bool(b.clone())),
+                Constant::Bool(b) => Ok(Value::Bool(*b)),
                 Constant::String(s) => Ok(Value::String(s.clone())),
-                Constant::Number(n) => Ok(Value::Number(n.clone())),
+                Constant::Number(n) => Ok(Value::Number(*n)),
             },
-            ExpressionFragment::Call(call) => self.eval_call(call, &functions, input, indexptr),
+            ExpressionFragment::Call(call) => self.eval_call(call, functions, input, indexptr),
             // ExpressionFragment::Name(name) => {
             //     self.variables.get(name).unwrap().borrow_mut().clone()
             // }
@@ -345,7 +334,7 @@ impl<'a> Scope<'a> {
                 let tmp = vref.clone();
                 let deref = tmp.borrow_mut();
                 Ok(match *deref {
-                    Value::Object(_) | Value::DynObject(_) => Value::Reference(vref), // passes by references
+                    Value::Object(_) | Value::DynObject(_) | Value::Array(_) => Value::Reference(vref), // passes by references
                     _ => deref.clone(), // else passes by value
                 })
             }
@@ -357,7 +346,7 @@ impl<'a> Scope<'a> {
                 },
             }),
             ExpressionFragment::Op(_)=>{
-                return Err(Exception::new(
+                Err(Exception::new(
                     indexptr,
                     "UnreachableUnexpectedSymbolException",
                     "Cannot use an operator (+,-,/,*,etc...) in an expression fragment. this shouldn't be reachable unless either you or i messed up really badly",
@@ -379,7 +368,7 @@ impl<'a> Scope<'a> {
                 // TODO: make it not clone, use &mut references instead
                 let mut args = vec![];
                 for arg in expargs {
-                    args.push(self.evaluate_expression(arg, &functions, input, indexptr)?);
+                    args.push(self.evaluate_expression(arg, functions, input, indexptr)?);
                 }
                 let mut nargs = vec![];
                 let mut requiredargs = func.args.len();
@@ -402,13 +391,11 @@ impl<'a> Scope<'a> {
                 ));
                 Ok(())
             }
-            _ => {
-                return Err(Exception::new(
-                    indexptr,
-                    "IncorrectTypeException",
-                    "cannot call something that is not a function",
-                ));
-            }
+            _ => Err(Exception::new(
+                indexptr,
+                "IncorrectTypeException",
+                "cannot call something that is not a function",
+            )),
         }
     }
     pub fn get_varref(
@@ -430,16 +417,26 @@ impl<'a> Scope<'a> {
 
                     let ar = ptr.clone().borrow_mut().clone();
                     match ar {
-                        Value::Array(_) => {
-                            if assign && i == varref.operations.len() - 1 {
-                                let mut mutval = ptr.borrow_mut();
-                                let arr = mutval.as_array();
-                                while index >= arr.len() {
-                                    arr.push(Rc::new(RefCell::new(Value::Null)));
+                        Value::Reference(r) => {
+                            let mut deref = r.borrow_mut();
+                            match &mut *deref {
+                                Value::Array(arr) => {
+                                    if assign && i == varref.operations.len() - 1 {
+                                        while index >= arr.len() {
+                                            arr.push(Rc::new(RefCell::new(Value::Null)));
+                                        }
+                                    }
+                                    let tmp = arr[index].clone();
+                                    ptr = tmp;
+                                }
+                                _ => {
+                                    return Err(Exception::new(
+                                        indexptr,
+                                        "InvalidIndexException",
+                                        "can only index into an array",
+                                    ))
                                 }
                             }
-                            let tmp = ptr.borrow_mut().as_array()[index].clone();
-                            ptr = tmp;
                         }
                         _ => {
                             return Err(Exception::new(
@@ -469,9 +466,8 @@ impl<'a> Scope<'a> {
                 }
                 VarRefFragment::ObjectProperty(name) => {
                     let mut tmp = ptr.borrow_mut().clone();
-                    match &tmp {
-                        Value::Reference(_) => ptr = tmp.as_ref().clone(), // automatic derefing.
-                        _ => (),
+                    if let Value::Reference(_) = tmp {
+                        ptr = tmp.as_ref().clone();
                     }
                     let fields = ptr.borrow_mut().fields();
                     match fields.get(name) {
@@ -491,8 +487,8 @@ impl<'a> Scope<'a> {
                 }
                 VarRefFragment::LambdaCall(l) => {
                     let tmp = ptr.clone();
-                    let mut fnc = tmp.borrow_mut();
-                    self.call_lambda(&mut fnc, l, &mut ptr, functions, input, indexptr)?
+                    let fnc = tmp.borrow_mut();
+                    self.call_lambda(&fnc, l, &mut ptr, functions, input, indexptr)?
                 }
             }
         }
@@ -506,9 +502,9 @@ impl<'a> Scope<'a> {
         indexptr: usize,
     ) -> Result<Rc<RefCell<Value<'a>>>, Exception> {
         match root {
-            VarRefRoot::Call(c) => match self.eval_call(&c, functions, input, indexptr) {
+            VarRefRoot::Call(c) => match self.eval_call(c, functions, input, indexptr) {
                 Ok(u) => Ok(Rc::new(RefCell::new(u))),
-                Err(e) => return Err(e),
+                Err(e) => Err(e),
             },
             VarRefRoot::Variable(v) => match self.variables.get(v) {
                 Some(s) => Ok(s.clone()),
@@ -535,7 +531,7 @@ impl<'a> Scope<'a> {
         let rf = functions.get(&call.name).unwrap();
         let mut args = vec![];
         for arg in &call.args {
-            args.push(self.evaluate_expression(&arg, &functions, input, indexptr)?);
+            args.push(self.evaluate_expression(arg, functions, input, indexptr)?);
         }
         self.call_function(rf, args, functions, input)
     }
@@ -695,34 +691,19 @@ impl<'a> Value<'a> {
         }
     }
     pub fn is_object(&self) -> bool {
-        match self {
-            Value::Object(_) => true,
-            _ => false,
-        }
+        matches!(self, Value::Object(_))
     }
     pub fn is_array(&self) -> bool {
-        match self {
-            Value::Array(_) => true,
-            _ => false,
-        }
+        matches!(self, Value::Array(_))
     }
     pub fn is_bool(&self) -> bool {
-        match self {
-            Value::Bool(_) => true,
-            _ => false,
-        }
+        matches!(self, Value::Bool(_))
     }
     pub fn is_number(&self) -> bool {
-        match self {
-            Value::Number(_) => true,
-            _ => false,
-        }
+        matches!(self, Value::Number(_))
     }
     pub fn is_string(&self) -> bool {
-        match self {
-            Value::String(_) => true,
-            _ => false,
-        }
+        matches!(self, Value::String(_))
     }
     pub fn is_null(&self) -> bool {
         match self {

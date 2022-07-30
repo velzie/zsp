@@ -13,7 +13,7 @@ use crate::{
     runtime::{FunctionType, Object, RFunction, Value},
 };
 
-pub fn functions<'a>() -> HashMap<String, RFunction> {
+pub fn functions() -> HashMap<String, RFunction> {
     HashMap::from([
         func!("put", zsp_put, 1),
         func!("get", zsp_get, 0),
@@ -40,7 +40,26 @@ pub fn stringprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
     ])
 }
 pub fn arrayprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
-    HashMap::new()
+    HashMap::from([
+
+        afunc!("push",array_push,1),
+        afunc!("pop",array_pop,0) 
+    ])
+}
+fn array_pop(mut inp:Vec<Value>) -> Result<Value,Exception>{
+    match inp[0].as_ref().borrow_mut().as_array().pop(){
+        Some(v)=>{
+           Ok(v.borrow_mut().clone())
+        }
+        None=>{
+            Err(Exception::new(0, "ArrayIndexException","Cannot pop from a zero length array"))
+        }
+    }
+}
+fn array_push(mut inp:Vec<Value>) -> Result<Value,Exception>{
+    let v = Rc::new(RefCell::new(inp[1].clone()));
+    inp[0].as_ref().borrow_mut().as_array().push(v);
+    Ok(Value::Null)
 }
 pub fn numberprototype<'a>() -> HashMap<String, Rc<RefCell<Value<'a>>>> {
     HashMap::from([
@@ -101,7 +120,7 @@ pub fn zsp_null_new(_args: Vec<Value>) -> Result<Value, Exception> {
     Ok(Value::Null)
 }
 fn zsp_array_len(args: Vec<Value>) -> Result<Value, Exception> {
-    Ok(Value::Number(args[0].clone().as_array().len() as f32))
+    Ok(Value::Number(args[0].clone().as_ref().borrow_mut().as_array().len() as f32))
 }
 
 fn zsp_put(args: Vec<Value>) -> Result<Value, Exception> {
