@@ -15,6 +15,7 @@ serde = "*"
 serde_json = "*"
 colored = "*"
 dyn-clone="*"
+[target.'cfg(any(linux, windows))'.dependencies]
 home = "*"
 [[bin]]
 name = "zsp"

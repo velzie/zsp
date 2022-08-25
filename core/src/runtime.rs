@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, fmt::Debug, fs, path::Path, rc::Rc};
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use home::home_dir;
 
 use crate::{
