@@ -85,7 +85,6 @@ pub fn execute(
         root.root.to_scope(ScopeType::Function, HashMap::new()),
     ));
     run_root(rootscope, &functions, input)?;
-    println!("ad");
     // rootscope.call_function(&functions.get("draw").unwrap(), vec![], &functions, &input);
     Ok(())
 }
@@ -181,7 +180,11 @@ pub fn run_root<'a>(
                     let idx = frag.index;
                     match stack.clone().iter().rev().position(|f| {
                         stack.pop();
-                        matches!(f.borrow_mut().scopetype, ScopeType::Loop)
+                        match f.try_borrow_mut(){
+                            Ok(e)=>matches!(e.scopetype, ScopeType::Loop),
+                            Err(_)=>matches!(pointer.scopetype,ScopeType::Loop)
+                        }
+                       
                     }) {
                         Some(_) => {
                             // idx += 1;
