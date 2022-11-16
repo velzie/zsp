@@ -57,7 +57,7 @@ pub fn execute(
             }
         }
     }
-    let root = parser::parse(tokens, input, &libraryfunctions)?;
+    let root = parser::parse(tokens, input, &libraryfunctions, &vec![])?;
     // println!("{:?}", root);
 
     let mut functions = builtins::functions();
@@ -180,11 +180,10 @@ pub fn run_root<'a>(
                     let idx = frag.index;
                     match stack.clone().iter().rev().position(|f| {
                         stack.pop();
-                        match f.try_borrow_mut(){
-                            Ok(e)=>matches!(e.scopetype, ScopeType::Loop),
-                            Err(_)=>matches!(pointer.scopetype,ScopeType::Loop)
+                        match f.try_borrow_mut() {
+                            Ok(e) => matches!(e.scopetype, ScopeType::Loop),
+                            Err(_) => matches!(pointer.scopetype, ScopeType::Loop),
                         }
-                       
                     }) {
                         Some(_) => {
                             // idx += 1;
@@ -588,10 +587,10 @@ impl PartialEq for FunctionType {
 }
 #[derive(Debug, Clone)]
 pub struct Scope<'a> {
-    variables: HashMap<String, Rc<RefCell<Value<'a>>>>,
-    structure: Block,
-    idx: usize,
-    scopetype: ScopeType,
+    pub variables: HashMap<String, Rc<RefCell<Value<'a>>>>,
+    pub structure: Block,
+    pub idx: usize,
+    pub scopetype: ScopeType,
 }
 #[derive(Debug, Clone)]
 

@@ -1,17 +1,25 @@
 use crate::lexer::Symbol;
+use backtrace::{Backtrace, Frame};
 use colored::Colorize;
 
 pub struct Exception {
     pub idx: usize,
     pub errtype: String,
     pub message: String,
+    pub coreframes: Vec<Frame>,
 }
 impl Exception {
     pub fn new(idx: usize, errtype: &str, message: &str) -> Exception {
+        let mut frames = vec![];
+        backtrace::trace(|frame| {
+            frames.push(frame.clone());
+            true // keep going to the next frame
+        });
         Exception {
             idx,
             errtype: errtype.into(),
             message: message.into(),
+            coreframes: frames,
         }
     }
     pub fn unexpected_symbol(idx: usize, symbol: Symbol, allowed: Vec<Symbol>) -> Exception {
@@ -85,5 +93,27 @@ impl Exception {
             line3,
             "-".repeat(dasheslen).red()
         )
+    }
+    pub fn trace(&self) -> String {
+        let mut out: String = String::new();
+
+        for frame in &self.coreframes {
+            // Resolve this instruction pointer to a symbol name
+            backtrace::resolve_frame(frame, |symbol| {
+                if let Some(filename) = symbol.filename() {
+                    // REMOVE BEFORE PUSHING
+                    if filename.starts_with("/home/ce/Documents/GitHub") {
+                        if let Some(num) = symbol.lineno() {
+                            out.push_str(&format!(
+                                "{}:{}\n",
+                                filename.to_str().unwrap(),
+                                &num.to_string()
+                            ));
+                        }
+                    }
+                }
+            });
+        }
+        out
     }
 }

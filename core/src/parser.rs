@@ -9,10 +9,14 @@ use core::panic;
 use std::collections::HashMap;
 
 use crate::exceptions::*;
+
+// exargs: variables you want it to recognize and not crash
+// useful for many things
 pub fn parse(
     tkns: Vec<Token>,
     input: &String,
     funcs: &HashMap<String, RFunction>,
+    exargs: &Vec<String>,
 ) -> Result<Root, Exception> {
     let mut tokens = tkns;
     let mut funsyms = HashMap::new();
@@ -38,7 +42,7 @@ pub fn parse(
     }
     make_funsyms(&mut tokens, &mut funsyms)?;
 
-    let rootblock = parse_block(&tokens, input, &funsyms, None, &vec![], 0, tokens.len())?;
+    let rootblock = parse_block(&tokens, input, &funsyms, None, &exargs, 0, tokens.len())?;
 
     let functions = make_functions(&funsyms, input, &rootblock)?;
     Ok(Root {
@@ -115,6 +119,9 @@ fn make_funsyms(
                         let mut args: Vec<String> = vec![];
                         loop {
                             idx += 1;
+                            if idx >= tokens.len() {
+                                break;
+                            }
                             match &tokens[idx].symbol.clone() {
                                 Symbol::BlockStart => {
                                     idx = next_symbol_block(
@@ -487,6 +494,7 @@ fn parse_block(
                 if !root.variables.contains(name)
                     && !args.contains(name)
                     && !funsyms.contains_key(name)
+                    && idx + 1 < tokens.len()
                     && matches!(&tokens[idx + 1].symbol, Symbol::Assign)
                 {
                     // initialize variable
